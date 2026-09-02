@@ -1,0 +1,40 @@
+# ==========================================
+#              EQUINOX CONFIG
+# ==========================================
+
+enchantments:
+
+  swift:
+    enabled: true
+    max-level: 10
+
+    # Each level adds 10% speed.
+    # Swift X = +100% speed.
+    bonus-per-level: 0.10
+
+
+  titan-leap:
+    enabled: true
+    max-level: 5
+
+    # Each level adds 10% jump strength.
+    # Titan Leap V = +50% jump.
+    bonus-per-level: 0.10
+
+
+  vitality:
+    enabled: true
+    max-level: 5
+
+    # Each level adds 10% maximum health.
+    # Vitality V = +50% health.
+    bonus-per-level: 0.10
+
+settings:
+
+  particles:
+    enabled: true
+
+    interval-ticks: 3
+
+    minimum-speed: 0.05
