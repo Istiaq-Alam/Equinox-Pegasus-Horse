@@ -599,18 +599,10 @@ Your support helps Equinox continue to grow.
 ---
 
 # 📄 License
-
-Choose and add a license before publishing the project publicly.
-
-Recommended options:
-
-* MIT License — Open and permissive
-* GPLv3 — Open source with stronger sharing requirements
-* All Rights Reserved — Maximum control over redistribution
+All Rights Reserved — Maximum control over redistribution
 
 ---
 
-# 🐎✨ Equinox
 
 ### **Your horse is no longer just a horse.**
 
