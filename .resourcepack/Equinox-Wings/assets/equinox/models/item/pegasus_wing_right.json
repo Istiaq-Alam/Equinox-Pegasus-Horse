@@ -1,0 +1,33 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "equinox:item/pegasus_wings"
+  },
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [0, 180, 0],
+      "translation": [0, 0, 0],
+      "scale": [-1, 1, 1]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [0, 180, 0],
+      "translation": [0, 0, 0],
+      "scale": [1, 1, 1]
+    },
+    "gui": {
+      "rotation": [0, 180, 0],
+      "translation": [0, 0, 0],
+      "scale": [-1, 1, 1]
+    },
+    "ground": {
+      "rotation": [0, 180, 0],
+      "translation": [0, 0, 0],
+      "scale": [-1, 1, 1]
+    },
+    "fixed": {
+      "rotation": [0, 180, 0],
+      "translation": [0, 0, 0],
+      "scale": [-1, 1, 1]
+    }
+  }
+}
