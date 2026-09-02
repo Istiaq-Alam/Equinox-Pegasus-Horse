@@ -1,6 +1,6 @@
 # 🐎✨ Equinox
 
-## Legendary Mount System for Paper
+## Legendary Mount Plugin for Paper Server
 
 **Equinox** transforms ordinary horses into powerful magical mounts with enchanted horse armor, mount binding, a magical whistle system, Pegasus-style flight, Bifrost-inspired sky pathways, and immersive particle effects.
 
@@ -535,100 +535,7 @@ For very large servers with hundreds of active horses, particle settings can be 
 
 ---
 
-# 🧩 Plugin Architecture
 
-The plugin is organized into multiple systems.
-
-```text
-com.istiak.equinox
-│
-├── EquinoxPlugin.java
-│
-├── commands/
-│   └── EquinoxCommand.java
-│
-├── enchantments/
-│   └── EnchantmentType.java
-│
-├── flight/
-│   ├── FlightManager.java
-│   └── FlightListener.java
-│
-├── items/
-│   ├── HorseArmorManager.java
-│   └── WhistleManager.java
-│
-├── listeners/
-│   ├── HorseArmorListener.java
-│   ├── HorseMovementListener.java
-│   └── WhistleListener.java
-│
-└── mounts/
-    ├── MountData.java
-    ├── MountManager.java
-    └── SummonManager.java
-```
-
----
-
-# 🗺️ Future Development
-
-Equinox is designed to grow into a complete legendary mount system.
-
-Planned and possible future features include:
-
-## 🪽 3D Pegasus Wings
-
-A dedicated resource pack system that adds:
-
-* Animated 3D wings
-* Wings attached directly to the horse
-* Takeoff animations
-* Flying animations
-* Wing folding during landing
-* Magical wing effects
-
----
-
-## 🦄 Unicorn System
-
-Potential features:
-
-* Unicorn horn models
-* Magical horn particles
-* Special abilities
-* Healing effects
-* Teleportation abilities
-
----
-
-## 🐉 More Legendary Mount Types
-
-Possible future mounts:
-
-* 🪽 Pegasus
-* 🦄 Unicorn
-* 🔥 Fire Horse
-* ⚡ Storm Horse
-* ❄️ Frost Horse
-* 🌌 Celestial Mount
-* 🌈 Bifrost Mount
-
----
-
-## ✨ More Magical Abilities
-
-Potential abilities include:
-
-* Dash
-* Double jump
-* Magical teleportation
-* Water walking
-* Lightning abilities
-* Special mount attacks
-* Custom particle trails
-
----
 
 # 🧑‍💻 Development
 
@@ -670,9 +577,9 @@ are always appreciated.
 
 # ❤️ Credits
 
-**Developer:** Istiak Alam
+**Developer:** [Istiak Alam](https://github.com/Istiaq-Alam)
 
-**Project:** Equinox — Legendary Mount System
+**Project:** [Equinox — Pegasus Horse](https://github.com/Istiaq-Alam/Equinox-Pegasus-Horse)
 
 Built with ❤️ for Minecraft players who want their horses to become truly legendary.
 
