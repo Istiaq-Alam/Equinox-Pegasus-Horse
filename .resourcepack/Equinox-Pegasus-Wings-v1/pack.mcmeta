@@ -1,6 +1,7 @@
 {
   "pack": {
-    "pack_format": 999,
-    "description": "Equinox Pegasus Wings - Paper 26.1.2"
+    "description": "Equinox Pegasus Wings - Resource Pack",
+    "min_format": 84,
+    "max_format": 84
   }
 }
