@@ -8,6 +8,7 @@ import com.istiak.equinox.items.HorseArmorManager;
 import com.istiak.equinox.items.WhistleManager;
 import com.istiak.equinox.listeners.HorseArmorListener;
 import com.istiak.equinox.listeners.HorseMovementListener;
+import com.istiak.equinox.listeners.MountLocationListener;
 import com.istiak.equinox.listeners.WhistleListener;
 import com.istiak.equinox.mounts.MountManager;
 import com.istiak.equinox.mounts.SummonManager;
@@ -17,7 +18,10 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Objects;
 
-public final class EquinoxPlugin extends JavaPlugin {
+
+public final class EquinoxPlugin
+        extends JavaPlugin {
+
 
     private HorseArmorManager horseArmorManager;
 
@@ -35,11 +39,13 @@ public final class EquinoxPlugin extends JavaPlugin {
 
     private FlightManager flightManager;
 
+    private WhistleListener whistleListener;
+
 
     /*
-     * ============================================================
+     * ========================================================
      * ENABLE
-     * ============================================================
+     * ========================================================
      */
 
     @Override
@@ -49,22 +55,26 @@ public final class EquinoxPlugin extends JavaPlugin {
 
 
         /*
-         * ========================================================
+         * ====================================================
          * INITIALIZE MANAGERS
-         * ========================================================
+         * ====================================================
          */
 
         this.horseArmorManager =
                 new HorseArmorManager(this);
 
+
         this.mountManager =
                 new MountManager(this);
+
 
         this.summonManager =
                 new SummonManager(this);
 
+
         this.whistleManager =
                 new WhistleManager(this);
+
 
         this.flightManager =
                 new FlightManager(this);
@@ -75,9 +85,9 @@ public final class EquinoxPlugin extends JavaPlugin {
 
 
         /*
-         * ========================================================
-         * REGISTER COMMAND
-         * ========================================================
+         * ====================================================
+         * COMMAND
+         * ====================================================
          */
 
         PluginCommand command =
@@ -95,56 +105,78 @@ public final class EquinoxPlugin extends JavaPlugin {
                 equinoxCommand
         );
 
+
         command.setTabCompleter(
                 equinoxCommand
         );
 
 
         /*
-         * ========================================================
-         * HORSE ARMOR SYSTEM
-         * ========================================================
+         * ====================================================
+         * HORSE ARMOR
+         * ====================================================
          */
 
         this.horseArmorListener =
                 new HorseArmorListener(this);
 
+
         this.horseArmorListener.start();
 
 
         /*
-         * ========================================================
-         * HORSE MOVEMENT SYSTEM
-         * ========================================================
+         * ====================================================
+         * HORSE MOVEMENT
+         * ====================================================
          */
 
         this.horseMovementListener =
                 new HorseMovementListener(this);
 
+
         this.horseMovementListener.start();
 
 
+
         /*
-         * ========================================================
-         * WHISTLE SYSTEM
-         * ========================================================
+         * ====================================================
+         * WHISTLE
+         * ====================================================
          */
+
+        this.whistleListener =
+                new WhistleListener(
+                        this,
+                        whistleManager
+                );
+
 
         getServer()
                 .getPluginManager()
                 .registerEvents(
-                        new WhistleListener(
-                                this,
-                                whistleManager
-                        ),
+                        whistleListener,
                         this
                 );
 
 
         /*
-         * ========================================================
-         * PEGASUS FLIGHT SYSTEM
-         * ========================================================
+         * ====================================================
+         * MOUNT LOCATION TRACKING
+         * ====================================================
+         */
+
+        getServer()
+                .getPluginManager()
+                .registerEvents(
+                        new MountLocationListener(this),
+                        this
+                );
+
+
+        /*
+         * ====================================================
+         * PEGASUS FLIGHT
+         * ====================================================
          */
 
         getServer()
@@ -169,6 +201,10 @@ public final class EquinoxPlugin extends JavaPlugin {
         );
 
         getLogger().info(
+                "Real Mount Chunk Recovery Enabled!"
+        );
+
+        getLogger().info(
                 "Pegasus Flight System Enabled!"
         );
 
@@ -179,17 +215,13 @@ public final class EquinoxPlugin extends JavaPlugin {
 
 
     /*
-     * ============================================================
+     * ========================================================
      * DISABLE
-     * ============================================================
+     * ========================================================
      */
 
     @Override
     public void onDisable() {
-
-        /*
-         * Stop armor scanner.
-         */
 
         if (horseArmorListener != null) {
 
@@ -197,24 +229,23 @@ public final class EquinoxPlugin extends JavaPlugin {
         }
 
 
-        /*
-         * Stop movement system.
-         */
-
         if (horseMovementListener != null) {
 
             horseMovementListener.stop();
         }
 
 
-        /*
-         * Stop flight system.
-         */
+        if (whistleListener != null) {
+
+            whistleListener.shutdown();
+        }
+
 
         if (flightManager != null) {
 
             flightManager.shutdown();
         }
+
 
         if (mountAnimationManager != null) {
 
@@ -223,7 +254,7 @@ public final class EquinoxPlugin extends JavaPlugin {
 
 
         /*
-         * Save mounts.
+         * Save real horse locations before shutdown.
          */
 
         if (mountManager != null) {
@@ -239,9 +270,9 @@ public final class EquinoxPlugin extends JavaPlugin {
 
 
     /*
-     * ============================================================
+     * ========================================================
      * GETTERS
-     * ============================================================
+     * ========================================================
      */
 
     public HorseArmorManager getHorseArmorManager() {
@@ -272,6 +303,7 @@ public final class EquinoxPlugin extends JavaPlugin {
 
         return flightManager;
     }
+
 
     public MountAnimationManager getMountAnimationManager() {
 

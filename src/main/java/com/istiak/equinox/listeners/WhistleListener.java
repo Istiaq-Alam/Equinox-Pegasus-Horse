@@ -13,6 +13,7 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -30,116 +31,35 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * ============================================================
- * EQUINOX WHISTLE LISTENER
- * ============================================================
- *
- * Whistle behavior:
- *
- * 1. Player riding own mount:
- *      -> Return mount to permanent home.
- *
- * 2. Horse is leashed:
- *      -> Do nothing. Never break the lead.
- *
- * 3. Horse is within RETURN_RADIUS:
- *      -> Return mount home.
- *
- * 4. Horse is within RUN_RADIUS:
- *      -> Horse physically runs toward owner.
- *
- * 5. Horse is farther than RUN_RADIUS:
- *      -> Horse teleports safely near owner.
- *
- * The permanent home location is created when:
- *
- *      /equinox mount bind
- *
- * is executed.
- */
 public final class WhistleListener implements Listener {
 
-    /*
-     * ============================================================
-     * CONFIGURATION
-     * ============================================================
-     */
-
-    /**
-     * If the horse is this close to the player,
-     * whistle sends it home.
-     */
     private static final double RETURN_RADIUS = 20.0;
 
-    /**
-     * If horse is inside this distance,
-     * it physically runs toward the player.
-     */
     private static final double RUN_RADIUS = 100.0;
 
-    /**
-     * Stop running when horse reaches this distance.
-     */
     private static final double ARRIVAL_DISTANCE = 3.5;
 
-    /**
-     * Horizontal velocity used while calling the horse.
-     */
     private static final double RUN_SPEED = 0.42;
 
-    /**
-     * Delay before teleporting.
-     */
     private static final long TELEPORT_DELAY_TICKS = 12L;
 
-    /**
-     * Maximum running time.
-     *
-     * 20 ticks = 1 second.
-     *
-     * 300 ticks = 15 seconds.
-     */
-    private static final int MAX_RUN_TICKS = 300;
+    private static final int MAX_CHUNK_LOAD_ATTEMPTS = 40;
 
-    /**
-     * Prevent repeated whistle spam.
-     */
     private static final long WHISTLE_COOLDOWN_MS = 750L;
 
-
-    /*
-     * ============================================================
-     * FIELDS
-     * ============================================================
-     */
 
     private final EquinoxPlugin plugin;
 
     private final WhistleManager whistleManager;
 
-    /**
-     * Stores currently running horse-call tasks.
-     *
-     * Player UUID -> BukkitTask
-     */
+
     private final Map<UUID, BukkitTask> activeRunTasks =
             new HashMap<>();
 
-    /**
-     * Whistle cooldown.
-     *
-     * Player UUID -> Last whistle time.
-     */
+
     private final Map<UUID, Long> whistleCooldowns =
             new HashMap<>();
 
-
-    /*
-     * ============================================================
-     * CONSTRUCTOR
-     * ============================================================
-     */
 
     public WhistleListener(
             EquinoxPlugin plugin,
@@ -152,9 +72,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * WHISTLE INTERACTION
-     * ============================================================
+     * ========================================================
+     * WHISTLE EVENT
+     * ========================================================
      */
 
     @EventHandler(
@@ -165,18 +85,14 @@ public final class WhistleListener implements Listener {
             PlayerInteractEvent event
     ) {
 
-        /*
-         * Only main hand.
-         */
         if (event.getHand() != EquipmentSlot.HAND) {
             return;
         }
 
 
-        /*
-         * Only right-click.
-         */
-        Action action = event.getAction();
+        Action action =
+                event.getAction();
+
 
         if (action != Action.RIGHT_CLICK_AIR
                 && action != Action.RIGHT_CLICK_BLOCK) {
@@ -185,7 +101,8 @@ public final class WhistleListener implements Listener {
         }
 
 
-        Player player = event.getPlayer();
+        Player player =
+                event.getPlayer();
 
 
         ItemStack item =
@@ -193,17 +110,11 @@ public final class WhistleListener implements Listener {
                         .getItemInMainHand();
 
 
-        /*
-         * Only Equinox Whistle.
-         */
         if (!whistleManager.isWhistle(item)) {
             return;
         }
 
 
-        /*
-         * Prevent normal Goat Horn behavior.
-         */
         event.setCancelled(true);
 
         event.setUseItemInHand(
@@ -215,9 +126,6 @@ public final class WhistleListener implements Listener {
         );
 
 
-        /*
-         * Cooldown protection.
-         */
         if (!canUseWhistle(player)) {
 
             player.sendActionBar(
@@ -231,29 +139,22 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Cancel any previous running task.
-         */
-        cancelRunTask(player.getUniqueId());
+        cancelRunTask(
+                player.getUniqueId()
+        );
 
 
-        /*
-         * Whistle effects.
-         */
         playWhistleEffect(player);
 
 
-        /*
-         * Handle mount.
-         */
         handleWhistle(player);
     }
 
 
     /*
-     * ============================================================
+     * ========================================================
      * COOLDOWN
-     * ============================================================
+     * ========================================================
      */
 
     private boolean canUseWhistle(
@@ -263,11 +164,14 @@ public final class WhistleListener implements Listener {
         UUID playerId =
                 player.getUniqueId();
 
+
         long now =
                 System.currentTimeMillis();
 
+
         Long lastUse =
                 whistleCooldowns.get(playerId);
+
 
         if (lastUse != null
                 && now - lastUse < WHISTLE_COOLDOWN_MS) {
@@ -281,23 +185,21 @@ public final class WhistleListener implements Listener {
                 now
         );
 
+
         return true;
     }
 
 
     /*
-     * ============================================================
+     * ========================================================
      * MAIN WHISTLE LOGIC
-     * ============================================================
+     * ========================================================
      */
 
     private void handleWhistle(
             Player player
     ) {
 
-        /*
-         * Check mount.
-         */
         if (!plugin.getMountManager()
                 .hasMount(player)) {
 
@@ -312,12 +214,10 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Get persistent mount data.
-         */
         MountData mountData =
                 plugin.getMountManager()
                         .getMount(player);
+
 
         if (mountData == null) {
 
@@ -332,35 +232,181 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Find horse.
-         */
         Horse horse =
                 plugin.getMountManager()
                         .getLoadedMount(player);
 
 
         /*
-         * Horse is not loaded.
+         * ====================================================
+         * HORSE NOT CURRENTLY LOADED
+         *
+         * Search LAST KNOWN LOCATION FIRST.
+         * ====================================================
          */
+
         if (horse == null) {
 
-            player.sendActionBar(
-                    Component.text(
-                            "Your Equinox mount is not loaded.",
-                            NamedTextColor.RED
-                    )
-            );
+            summonFromUnloadedChunk(player);
 
             return;
         }
 
 
-        /*
-         * ========================================================
-         * LEASH SAFETY
-         * ========================================================
-         */
+        handleLoadedHorse(
+                player,
+                horse,
+                mountData
+        );
+    }
+
+
+
+/*
+ * ========================================================
+ * FIND REAL HORSE FROM UNLOADED CHUNK
+ * ========================================================
+ */
+
+private void summonFromUnloadedChunk(
+        Player player
+) {
+
+    UUID playerId =
+            player.getUniqueId();
+
+
+    player.sendActionBar(
+            Component.text(
+                    "Locating your Equinox mount...",
+                    NamedTextColor.LIGHT_PURPLE
+            )
+    );
+
+
+    /*
+     * Cancel any old recovery task.
+     */
+
+    cancelRunTask(
+            playerId
+    );
+
+
+    BukkitTask task =
+            plugin.getServer()
+                    .getScheduler()
+                    .runTaskTimer(
+                            plugin,
+                            new Runnable() {
+
+                                private int attempts = 0;
+
+
+                                @Override
+                                public void run() {
+
+                                    if (!player.isOnline()) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+                                        return;
+                                    }
+
+
+                                    attempts++;
+
+
+                                    /*
+                                     * ====================================================
+                                     * TRY TO FIND THE REAL HORSE
+                                     * ====================================================
+                                     */
+
+                                    Horse horse =
+                                            plugin.getMountManager()
+                                                    .findAndLoadRealMount(
+                                                            player
+                                                    );
+
+
+                                    if (horse != null
+                                            && horse.isValid()
+                                            && !horse.isDead()) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+
+                                        MountData mountData =
+                                                plugin.getMountManager()
+                                                        .getMount(
+                                                                player
+                                                        );
+
+
+                                        if (mountData == null) {
+
+                                            return;
+                                        }
+
+
+                                        handleLoadedHorse(
+                                                player,
+                                                horse,
+                                                mountData
+                                        );
+
+                                        return;
+                                    }
+
+
+                                    /*
+                                     * Try again for a while.
+                                     */
+
+                                    if (attempts >= 80) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+
+                                        player.sendActionBar(
+                                                Component.text(
+                                                        "Your real Equinox mount could not be found.",
+                                                        NamedTextColor.RED
+                                                )
+                                        );
+                                    }
+                                }
+                            },
+                            0L,
+                            2L
+                    );
+
+
+    activeRunTasks.put(
+            playerId,
+            task
+    );
+}
+
+
+    /*
+     * ========================================================
+     * HANDLE LOADED HORSE
+     * ========================================================
+     */
+
+    private void handleLoadedHorse(
+            Player player,
+            Horse horse,
+            MountData mountData
+    ) {
 
         if (horse.isLeashed()) {
 
@@ -376,12 +422,12 @@ public final class WhistleListener implements Listener {
 
 
         /*
-         * ========================================================
-         * PLAYER IS RIDING
-         * ========================================================
+         * Riding the horse + whistle
+         * = return horse home.
          */
 
-        if (horse.getPassengers().contains(player)) {
+        if (horse.getPassengers()
+                .contains(player)) {
 
             returnMountHome(
                     player,
@@ -393,19 +439,11 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * ========================================================
-         * DISTANCE
-         * ========================================================
-         */
-
         double distance;
 
 
-        /*
-         * Different worlds = far away.
-         */
-        if (!horse.getWorld().equals(player.getWorld())) {
+        if (!horse.getWorld()
+                .equals(player.getWorld())) {
 
             distance = Double.MAX_VALUE;
 
@@ -420,11 +458,7 @@ public final class WhistleListener implements Listener {
 
 
         /*
-         * ========================================================
-         * CLOSE TO PLAYER
-         *
-         * Return home.
-         * ========================================================
+         * Close horse = send home.
          */
 
         if (distance <= RETURN_RADIUS) {
@@ -440,11 +474,7 @@ public final class WhistleListener implements Listener {
 
 
         /*
-         * ========================================================
-         * WITHIN RUN RANGE
-         *
-         * Physically run toward player.
-         * ========================================================
+         * Medium distance = run normally.
          */
 
         if (distance <= RUN_RADIUS) {
@@ -459,11 +489,7 @@ public final class WhistleListener implements Listener {
 
 
         /*
-         * ========================================================
-         * FAR AWAY
-         *
-         * Teleport near player.
-         * ========================================================
+         * Far away = teleport the REAL horse.
          */
 
         teleportMountToPlayer(
@@ -474,264 +500,347 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * RUN MOUNT TO PLAYER
-     * ============================================================
-     */
+ * ========================================================
+ * RUN TO PLAYER
+ * ========================================================
+ */
 
-    private void runMountToPlayer(
-            Player player,
-            Horse horse
-    ) {
+private void runMountToPlayer(
+        Player player,
+        Horse horse
+) {
 
-        UUID playerId =
-                player.getUniqueId();
-
-
-        player.sendActionBar(
-                Component.text(
-                        "Your Equinox mount is coming...",
-                        NamedTextColor.LIGHT_PURPLE
-                )
-        );
+    UUID playerId =
+            player.getUniqueId();
 
 
-        BukkitTask task =
-                plugin.getServer()
-                        .getScheduler()
-                        .runTaskTimer(
-                                plugin,
-                                new Runnable() {
-
-                                    private int ticks = 0;
-
-                                    @Override
-                                    public void run() {
-
-                                        /*
-                                         * Player safety.
-                                         */
-                                        if (!player.isOnline()) {
-
-                                            cancelRunTask(playerId);
-
-                                            return;
-                                        }
+    cancelRunTask(
+            playerId
+    );
 
 
-                                        /*
-                                         * Horse safety.
-                                         */
-                                        if (!horse.isValid()
-                                                || horse.isDead()) {
-
-                                            cancelRunTask(playerId);
-
-                                            return;
-                                        }
+    player.sendActionBar(
+            Component.text(
+                    "Your Equinox mount is coming...",
+                    NamedTextColor.LIGHT_PURPLE
+            )
+    );
 
 
-                                        /*
-                                         * Never interfere with leash.
-                                         */
-                                        if (horse.isLeashed()) {
+    BukkitTask task =
+            plugin.getServer()
+                    .getScheduler()
+                    .runTaskTimer(
+                            plugin,
+                            new Runnable() {
 
-                                            cancelRunTask(playerId);
-
-                                            return;
-                                        }
-
-
-                                        /*
-                                         * Player changed world.
-                                         */
-                                        if (!horse.getWorld()
-                                                .equals(player.getWorld())) {
-
-                                            cancelRunTask(playerId);
-
-                                            return;
-                                        }
+                                private int ticks = 0;
 
 
-                                        Location horseLocation =
-                                                horse.getLocation();
+                                @Override
+                                public void run() {
 
-                                        Location playerLocation =
-                                                player.getLocation();
+                                    if (!player.isOnline()
+                                            || !horse.isValid()
+                                            || horse.isDead()) {
 
-
-                                        double distance =
-                                                horseLocation.distance(
-                                                        playerLocation
-                                                );
-
-
-                                        /*
-                                         * Mount arrived.
-                                         */
-                                        if (distance <= ARRIVAL_DISTANCE) {
-
-                                            horse.setVelocity(
-                                                    new Vector(
-                                                            0,
-                                                            horse.getVelocity().getY(),
-                                                            0
-                                                    )
-                                            );
-
-                                            player.sendActionBar(
-                                                    Component.text(
-                                                            "✦ Your Equinox mount has arrived.",
-                                                            NamedTextColor.GREEN
-                                                    )
-                                            );
-
-                                            cancelRunTask(playerId);
-
-                                            return;
-                                        }
-
-
-                                        /*
-                                         * ====================================================
-                                         * MOVE TOWARD PLAYER
-                                         * ====================================================
-                                         */
-
-                                        Vector direction =
-                                                playerLocation.toVector()
-                                                        .subtract(
-                                                                horseLocation.toVector()
-                                                        );
-
-
-                                        /*
-                                         * Horizontal movement only.
-                                         */
-                                        direction.setY(0);
-
-
-                                        if (direction.lengthSquared()
-                                                > 0.0001) {
-
-                                            direction.normalize();
-
-                                            direction.multiply(
-                                                    RUN_SPEED
-                                            );
-
-
-                                            /*
-                                             * Preserve vertical motion.
-                                             */
-                                            direction.setY(
-                                                    horse.getVelocity().getY()
-                                            );
-
-
-                                            horse.setVelocity(
-                                                    direction
-                                            );
-                                        }
-
-
-                                        /*
-                                         * Face the player.
-                                         */
-                                        Location facing =
-                                                horseLocation.clone();
-
-                                        facing.setDirection(
-                                                playerLocation.toVector()
-                                                        .subtract(
-                                                                horseLocation.toVector()
-                                                        )
+                                        cancelRunTask(
+                                                playerId
                                         );
 
-                                        horse.setRotation(
-                                                facing.getYaw(),
-                                                horse.getLocation().getPitch()
+                                        return;
+                                    }
+
+
+                                    if (horse.isLeashed()) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+                                        return;
+                                    }
+
+
+                                    if (!horse.getWorld()
+                                            .equals(
+                                                    player.getWorld()
+                                            )) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+                                        return;
+                                    }
+
+
+                                    Location horseLocation =
+                                            horse.getLocation();
+
+
+                                    Location playerLocation =
+                                            player.getLocation();
+
+
+                                    double distance =
+                                            horseLocation.distance(
+                                                    playerLocation
+                                            );
+
+
+                                    /*
+                                     * ====================================================
+                                     * ARRIVED
+                                     * ====================================================
+                                     */
+
+                                    if (distance
+                                            <= ARRIVAL_DISTANCE) {
+
+                                        Vector velocity =
+                                                horse.getVelocity();
+
+
+                                        horse.setVelocity(
+                                                new Vector(
+                                                        0,
+                                                        velocity.getY(),
+                                                        0
+                                                )
                                         );
 
 
-                                        /*
-                                         * Magical trail.
-                                         */
-                                        horse.getWorld()
-                                                .spawnParticle(
-                                                        Particle.END_ROD,
-                                                        horseLocation.clone()
-                                                                .add(
-                                                                        0,
-                                                                        1.0,
-                                                                        0
-                                                                ),
-                                                        2,
-                                                        0.2,
-                                                        0.25,
-                                                        0.2,
-                                                        0.01
+                                        horse.setJumping(
+                                                false
+                                        );
+
+
+                                        player.sendActionBar(
+                                                Component.text(
+                                                        "✦ Your Equinox mount has arrived.",
+                                                        NamedTextColor.GREEN
+                                                )
+                                        );
+
+
+                                        plugin.getMountManager()
+                                                .updateLastKnownLocation(
+                                                        horse
                                                 );
 
 
-                                        /*
-                                         * Timeout.
-                                         */
-                                        ticks++;
+                                        cancelRunTask(
+                                                playerId
+                                        );
 
-                                        if (ticks >= MAX_RUN_TICKS) {
+                                        return;
+                                    }
 
-                                            player.sendActionBar(
-                                                    Component.text(
-                                                            "Your Equinox mount could not reach you.",
-                                                            NamedTextColor.YELLOW
+
+                                    /*
+                                     * ====================================================
+                                     * DIRECTION
+                                     * ====================================================
+                                     */
+
+                                    Vector direction =
+                                            playerLocation.toVector()
+                                                    .subtract(
+                                                            horseLocation.toVector()
+                                                    );
+
+
+                                    direction.setY(0);
+
+
+                                    if (direction.lengthSquared()
+                                            < 0.0001) {
+
+                                        return;
+                                    }
+
+
+                                    direction.normalize();
+
+
+                                    /*
+                                     * ====================================================
+                                     * FACE MOVEMENT DIRECTION
+                                     * ====================================================
+                                     */
+
+                                    float yaw =
+                                            (float) Math.toDegrees(
+                                                    Math.atan2(
+                                                            -direction.getX(),
+                                                            direction.getZ()
                                                     )
                                             );
 
-                                            cancelRunTask(playerId);
+
+                                    horse.setRotation(
+                                            yaw,
+                                            0.0f
+                                    );
+
+
+                                    /*
+                                     * ====================================================
+                                     * JUMP DETECTION
+                                     * ====================================================
+                                     *
+                                     * The horse jumps when:
+                                     *
+                                     * 1. There is a solid block directly ahead,
+                                     *    OR
+                                     *
+                                     * 2. The player is significantly higher.
+                                     *
+                                     * The block above the obstacle must be passable.
+                                     * ====================================================
+                                     */
+
+                                    boolean shouldJump =
+                                            shouldHorseJump(
+                                                    horse,
+                                                    direction,
+                                                    playerLocation
+                                            );
+
+
+                                    if (shouldJump) {
+
+                                        horse.setJumping(
+                                                true
+                                        );
+
+
+                                        Vector currentVelocity =
+                                                horse.getVelocity();
+
+
+                                        /*
+                                         * Give the horse enough vertical
+                                         * velocity to clear a one-block
+                                         * obstacle.
+                                         */
+
+                                        double jumpVelocity =
+                                                Math.max(
+                                                        0.42D,
+                                                        horse.getJumpStrength()
+                                                                * 0.72D
+                                                );
+
+
+                                        if (currentVelocity.getY()
+                                                < jumpVelocity) {
+
+                                            currentVelocity =
+                                                    currentVelocity.clone();
+
+
+                                            currentVelocity.setY(
+                                                    jumpVelocity
+                                            );
+
+
+                                            horse.setVelocity(
+                                                    currentVelocity
+                                            );
+                                        }
+
+                                    } else {
+
+                                        /*
+                                         * Don't force jumping continuously.
+                                         */
+
+                                        if (horse.isOnGround()) {
+
+                                            horse.setJumping(
+                                                    false
+                                            );
                                         }
                                     }
 
-                                },
-                                0L,
-                                1L
-                        );
+
+                                    /*
+                                     * ====================================================
+                                     * HORIZONTAL MOVEMENT
+                                     * ====================================================
+                                     */
+
+                                    Vector velocity =
+                                            direction.clone()
+                                                    .multiply(
+                                                            RUN_SPEED
+                                                    );
 
 
-        activeRunTasks.put(
-                playerId,
-                task
-        );
-    }
+                                    /*
+                                     * Preserve current vertical velocity.
+                                     */
+
+                                    velocity.setY(
+                                            horse.getVelocity()
+                                                    .getY()
+                                    );
+
+
+                                    horse.setVelocity(
+                                            velocity
+                                    );
+
+
+                                    ticks++;
+
+
+                                    /*
+                                     * ====================================================
+                                     * TIMEOUT
+                                     * ====================================================
+                                     */
+
+                                    if (ticks >= 600) {
+
+                                        cancelRunTask(
+                                                playerId
+                                        );
+
+
+                                        plugin.getMountManager()
+                                                .updateLastKnownLocation(
+                                                        horse
+                                                );
+
+
+                                        player.sendActionBar(
+                                                Component.text(
+                                                        "Your Equinox mount could not reach you.",
+                                                        NamedTextColor.YELLOW
+                                                )
+                                        );
+                                    }
+                                }
+                            },
+                            0L,
+                            1L
+                    );
+
+
+    activeRunTasks.put(
+            playerId,
+            task
+    );
+}
 
 
     /*
-     * ============================================================
-     * CANCEL RUN TASK
-     * ============================================================
-     */
-
-    private void cancelRunTask(
-            UUID playerId
-    ) {
-
-        BukkitTask task =
-                activeRunTasks.remove(
-                        playerId
-                );
-
-        if (task != null) {
-
-            task.cancel();
-        }
-    }
-
-
-    /*
-     * ============================================================
-     * TELEPORT MOUNT TO PLAYER
-     * ============================================================
+     * ========================================================
+     * TELEPORT REAL HORSE TO PLAYER
+     * ========================================================
      */
 
     private void teleportMountToPlayer(
@@ -751,15 +860,9 @@ public final class WhistleListener implements Listener {
                 horse.getLocation().clone();
 
 
-        /*
-         * Departure effect.
-         */
         playTeleportEffect(oldLocation);
 
 
-        /*
-         * Stop movement.
-         */
         horse.setVelocity(
                 new Vector(0, 0, 0)
         );
@@ -771,19 +874,11 @@ public final class WhistleListener implements Listener {
                         plugin,
                         () -> {
 
-                            /*
-                             * Safety checks.
-                             */
-                            if (!player.isOnline()) {
-                                return;
-                            }
+                            if (!player.isOnline()
+                                    || !horse.isValid()
+                                    || horse.isDead()
+                                    || horse.isLeashed()) {
 
-                            if (!horse.isValid()
-                                    || horse.isDead()) {
-                                return;
-                            }
-
-                            if (horse.isLeashed()) {
                                 return;
                             }
 
@@ -807,9 +902,6 @@ public final class WhistleListener implements Listener {
                             }
 
 
-                            /*
-                             * Teleport horse.
-                             */
                             boolean success =
                                     horse.teleport(
                                             destination
@@ -829,12 +921,13 @@ public final class WhistleListener implements Listener {
                             }
 
 
-                            /*
-                             * Arrival effects.
-                             */
-                            playTeleportEffect(
-                                    destination
-                            );
+                            plugin.getMountManager()
+                                    .updateLastKnownLocation(
+                                            horse
+                                    );
+
+
+                            playTeleportEffect(destination);
 
 
                             destination.getWorld()
@@ -860,9 +953,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * RETURN MOUNT HOME
-     * ============================================================
+     * ========================================================
+     * RETURN HOME
+     * ========================================================
      */
 
     private void returnMountHome(
@@ -871,9 +964,6 @@ public final class WhistleListener implements Listener {
             MountData mountData
     ) {
 
-        /*
-         * Never teleport leashed horse.
-         */
         if (horse.isLeashed()) {
 
             player.sendActionBar(
@@ -888,8 +978,13 @@ public final class WhistleListener implements Listener {
 
 
         /*
-         * Get permanent home.
+         * IMPORTANT:
+         *
+         * This is the PERMANENT BIND LOCATION.
+         *
+         * It is NEVER replaced with last-known location.
          */
+
         Location home =
                 mountData.getHomeLocation();
 
@@ -908,9 +1003,6 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Cancel movement.
-         */
         cancelRunTask(
                 player.getUniqueId()
         );
@@ -924,15 +1016,9 @@ public final class WhistleListener implements Listener {
         );
 
 
-        /*
-         * Eject passengers.
-         */
         horse.eject();
 
 
-        /*
-         * Stop horse.
-         */
         horse.setVelocity(
                 new Vector(0, 0, 0)
         );
@@ -942,9 +1028,7 @@ public final class WhistleListener implements Listener {
                 horse.getLocation().clone();
 
 
-        playTeleportEffect(
-                oldLocation
-        );
+        playTeleportEffect(oldLocation);
 
 
         plugin.getServer()
@@ -954,18 +1038,13 @@ public final class WhistleListener implements Listener {
                         () -> {
 
                             if (!horse.isValid()
-                                    || horse.isDead()) {
+                                    || horse.isDead()
+                                    || horse.isLeashed()) {
+
                                 return;
                             }
 
-                            if (horse.isLeashed()) {
-                                return;
-                            }
 
-
-                            /*
-                             * Check whether home is safe.
-                             */
                             Location safeHome =
                                     findSafeLocation(
                                             home
@@ -1004,29 +1083,29 @@ public final class WhistleListener implements Listener {
                             }
 
 
+                            /*
+                             * Update LAST KNOWN only.
+                             *
+                             * DO NOT update permanent HOME.
+                             */
+
+                            plugin.getMountManager()
+                                    .updateLastKnownLocation(
+                                            horse
+                                    );
+
+
                             playTeleportEffect(
                                     safeHome
                             );
 
 
-                            safeHome.getWorld()
-                                    .playSound(
-                                            safeHome,
-                                            Sound.ENTITY_ENDERMAN_TELEPORT,
-                                            1.0f,
-                                            0.85f
-                                    );
-
-
-                            if (player.isOnline()) {
-
-                                player.sendActionBar(
-                                        Component.text(
-                                                "✦ Your Equinox mount returned home.",
-                                                NamedTextColor.GREEN
-                                        )
-                                );
-                            }
+                            player.sendActionBar(
+                                    Component.text(
+                                            "✦ Your Equinox mount returned home.",
+                                            NamedTextColor.GREEN
+                                    )
+                            );
 
                         },
                         TELEPORT_DELAY_TICKS
@@ -1035,9 +1114,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * FIND SAFE LOCATION NEAR PLAYER
-     * ============================================================
+     * ========================================================
+     * SAFE LOCATION NEAR PLAYER
+     * ========================================================
      */
 
     private Location findSafeLocationNearPlayer(
@@ -1051,11 +1130,8 @@ public final class WhistleListener implements Listener {
                 player.getWorld();
 
 
-        /*
-         * Try random locations.
-         */
         for (int attempt = 0;
-             attempt < 16;
+             attempt < 20;
              attempt++) {
 
             double angle =
@@ -1068,7 +1144,7 @@ public final class WhistleListener implements Listener {
             double radius =
                     3.0
                             + ThreadLocalRandom.current()
-                            .nextDouble(3.0);
+                            .nextDouble(4.0);
 
 
             int blockX =
@@ -1110,63 +1186,14 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Try positions directly around player.
-         */
-        for (int x = -4;
-             x <= 4;
-             x += 2) {
-
-            for (int z = -4;
-                 z <= 4;
-                 z += 2) {
-
-                if (x == 0 && z == 0) {
-                    continue;
-                }
-
-
-                int blockX =
-                        base.getBlockX() + x;
-
-                int blockZ =
-                        base.getBlockZ() + z;
-
-
-                int highestY =
-                        world.getHighestBlockYAt(
-                                blockX,
-                                blockZ
-                        );
-
-
-                Location candidate =
-                        new Location(
-                                world,
-                                blockX + 0.5,
-                                highestY + 1.0,
-                                blockZ + 0.5,
-                                player.getYaw(),
-                                0.0f
-                        );
-
-
-                if (isSafeForHorse(candidate)) {
-
-                    return candidate;
-                }
-            }
-        }
-
-
         return null;
     }
 
 
     /*
-     * ============================================================
-     * FIND SAFE HOME LOCATION
-     * ============================================================
+     * ========================================================
+     * SAFE HOME LOCATION
+     * ========================================================
      */
 
     private Location findSafeLocation(
@@ -1180,9 +1207,6 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * First try exact home.
-         */
         if (isSafeForHorse(location)) {
 
             return location.clone();
@@ -1193,9 +1217,6 @@ public final class WhistleListener implements Listener {
                 location.getWorld();
 
 
-        /*
-         * Search around home.
-         */
         for (int radius = 1;
              radius <= 4;
              radius++) {
@@ -1227,9 +1248,7 @@ public final class WhistleListener implements Listener {
                                     world,
                                     blockX + 0.5,
                                     highestY + 1.0,
-                                    blockZ + 0.5,
-                                    location.getYaw(),
-                                    location.getPitch()
+                                    blockZ + 0.5
                             );
 
 
@@ -1247,9 +1266,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * SAFE HORSE LOCATION CHECK
-     * ============================================================
+     * ========================================================
+     * SAFE CHECK
+     * ========================================================
      */
 
     private boolean isSafeForHorse(
@@ -1266,10 +1285,12 @@ public final class WhistleListener implements Listener {
         Block feet =
                 location.getBlock();
 
+
         Block head =
                 location.clone()
                         .add(0, 1, 0)
                         .getBlock();
+
 
         Block ground =
                 location.clone()
@@ -1277,22 +1298,17 @@ public final class WhistleListener implements Listener {
                         .getBlock();
 
 
-        /*
-         * Horse needs solid ground.
-         */
         if (!ground.getType().isSolid()) {
 
             return false;
         }
 
 
-        /*
-         * Horse needs air/passable space.
-         */
         if (!feet.isPassable()) {
 
             return false;
         }
+
 
         if (!head.isPassable()) {
 
@@ -1300,29 +1316,99 @@ public final class WhistleListener implements Listener {
         }
 
 
-        /*
-         * Avoid dangerous blocks.
-         */
         Material groundType =
                 ground.getType();
 
-        if (groundType == Material.LAVA
-                || groundType == Material.MAGMA_BLOCK
-                || groundType == Material.CAMPFIRE
-                || groundType == Material.SOUL_CAMPFIRE) {
 
-            return false;
-        }
-
-
-        return true;
+        return groundType != Material.LAVA
+                && groundType != Material.MAGMA_BLOCK
+                && groundType != Material.CAMPFIRE
+                && groundType != Material.SOUL_CAMPFIRE;
     }
 
 
     /*
-     * ============================================================
+     * ========================================================
+     * RUNNING / JUMP HELPERS
+     * ========================================================
+     */
+
+    private boolean hasOneBlockObstacleAhead(
+            Horse horse,
+            Vector direction
+    ) {
+
+        Location base = horse.getLocation();
+
+        Vector step = direction.clone()
+                .setY(0)
+                .normalize()
+                .multiply(0.9);
+
+        Location feetLocation = base.clone()
+                .add(step)
+                .add(0, 0.15, 0);
+
+        Block obstacle = feetLocation.getBlock();
+        Block aboveObstacle = obstacle.getRelative(BlockFace.UP);
+
+        /*
+         * A one-block obstacle must be solid, with free headroom
+         * above it. This prevents jumping into walls or ceilings.
+         */
+        return obstacle.getType().isSolid()
+                && aboveObstacle.isPassable();
+    }
+
+
+    private void releaseRecoveryTickets(
+            Player player
+    ) {
+
+        MountData mountData =
+                plugin.getMountManager().getMount(player);
+
+        if (mountData == null) {
+            return;
+        }
+
+        plugin.getMountManager()
+                .releaseMountRecoveryArea(
+                        mountData.getLastKnownLocation()
+                );
+
+        plugin.getMountManager()
+                .releaseMountRecoveryArea(
+                        mountData.getHomeLocation()
+                );
+    }
+
+
+    /*
+     * ========================================================
+     * CANCEL TASK
+     * ========================================================
+     */
+
+    private void cancelRunTask(
+            UUID playerId
+    ) {
+
+        BukkitTask task =
+                activeRunTasks.remove(playerId);
+
+
+        if (task != null) {
+
+            task.cancel();
+        }
+    }
+
+
+    /*
+     * ========================================================
      * TELEPORT EFFECT
-     * ============================================================
+     * ========================================================
      */
 
     private void playTeleportEffect(
@@ -1342,20 +1428,13 @@ public final class WhistleListener implements Listener {
 
         Location center =
                 location.clone()
-                        .add(
-                                0,
-                                1.0,
-                                0
-                        );
+                        .add(0, 1, 0);
 
 
-        /*
-         * Magical burst.
-         */
         world.spawnParticle(
                 Particle.END_ROD,
                 center,
-                45,
+                40,
                 0.8,
                 1.0,
                 0.8,
@@ -1366,67 +1445,23 @@ public final class WhistleListener implements Listener {
         world.spawnParticle(
                 Particle.ENCHANT,
                 center,
-                80,
+                60,
                 1.0,
-                1.2,
                 1.0,
-                0.4
+                1.0,
+                0.3
         );
 
 
         world.spawnParticle(
                 Particle.ELECTRIC_SPARK,
                 center,
-                30,
-                0.7,
-                0.9,
-                0.7,
-                0.15
+                25,
+                0.6,
+                0.8,
+                0.6,
+                0.1
         );
-
-
-        /*
-         * Ground ring.
-         */
-        int points = 32;
-
-        double radius = 1.5;
-
-
-        for (int i = 0;
-             i < points;
-             i++) {
-
-            double angle =
-                    (Math.PI * 2.0 * i)
-                            / points;
-
-
-            double x =
-                    Math.cos(angle)
-                            * radius;
-
-
-            double z =
-                    Math.sin(angle)
-                            * radius;
-
-
-            world.spawnParticle(
-                    Particle.END_ROD,
-                    location.clone()
-                            .add(
-                                    x,
-                                    0.15,
-                                    z
-                            ),
-                    1,
-                    0,
-                    0,
-                    0,
-                    0
-            );
-        }
 
 
         world.playSound(
@@ -1439,9 +1474,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
+     * ========================================================
      * WHISTLE EFFECT
-     * ============================================================
+     * ========================================================
      */
 
     private void playWhistleEffect(
@@ -1455,16 +1490,9 @@ public final class WhistleListener implements Listener {
         Location location =
                 player.getLocation()
                         .clone()
-                        .add(
-                                0,
-                                1.0,
-                                0
-                        );
+                        .add(0, 1, 0);
 
 
-        /*
-         * Whistle sound.
-         */
         world.playSound(
                 location,
                 Sound.ITEM_GOAT_HORN_SOUND_0,
@@ -1473,9 +1501,6 @@ public final class WhistleListener implements Listener {
         );
 
 
-        /*
-         * Magical sound.
-         */
         world.playSound(
                 location,
                 Sound.BLOCK_BEACON_ACTIVATE,
@@ -1484,9 +1509,6 @@ public final class WhistleListener implements Listener {
         );
 
 
-        /*
-         * Particles.
-         */
         world.spawnParticle(
                 Particle.END_ROD,
                 location,
@@ -1509,61 +1531,6 @@ public final class WhistleListener implements Listener {
         );
 
 
-        world.spawnParticle(
-                Particle.ELECTRIC_SPARK,
-                location,
-                12,
-                0.45,
-                0.35,
-                0.45,
-                0.08
-        );
-
-
-        /*
-         * Ring.
-         */
-        int points = 24;
-
-        double radius = 0.8;
-
-
-        for (int i = 0;
-             i < points;
-             i++) {
-
-            double angle =
-                    (Math.PI * 2.0 * i)
-                            / points;
-
-
-            double x =
-                    Math.cos(angle)
-                            * radius;
-
-
-            double z =
-                    Math.sin(angle)
-                            * radius;
-
-
-            world.spawnParticle(
-                    Particle.END_ROD,
-                    location.clone()
-                            .add(
-                                    x,
-                                    -0.75,
-                                    z
-                            ),
-                    1,
-                    0,
-                    0,
-                    0,
-                    0
-            );
-        }
-
-
         player.sendActionBar(
                 Component.text(
                         "✦ Equinox Whistle",
@@ -1574,11 +1541,9 @@ public final class WhistleListener implements Listener {
 
 
     /*
-     * ============================================================
-     * CLEANUP
-     * ============================================================
-     *
-     * Call this from your plugin's onDisable().
+     * ========================================================
+     * SHUTDOWN
+     * ========================================================
      */
 
     public void shutdown() {
@@ -1587,6 +1552,7 @@ public final class WhistleListener implements Listener {
                 : activeRunTasks.values()) {
 
             if (task != null) {
+
                 task.cancel();
             }
         }
@@ -1596,4 +1562,214 @@ public final class WhistleListener implements Listener {
 
         whistleCooldowns.clear();
     }
+
+    /*
+ * ========================================================
+ * HORSE JUMP DECISION
+ * ========================================================
+ *
+ * Determines whether the horse needs to jump because the
+ * path toward the player is blocked by a 1-block-high
+ * obstacle.
+ *
+ * This is specifically for the whistle-follow system.
+ * It allows the horse to climb normal 1-block terrain
+ * instead of getting stuck against the block.
+ * ========================================================
+ */
+private boolean shouldHorseJump(
+        Horse horse,
+        Vector direction,
+        Location target
+) {
+
+    if (horse == null
+            || !horse.isValid()
+            || horse.isDead()
+            || direction == null
+            || target == null) {
+
+        return false;
+    }
+
+
+    Location horseLocation =
+            horse.getLocation();
+
+
+    World world =
+            horseLocation.getWorld();
+
+
+    if (world == null
+            || target.getWorld() == null
+            || !world.equals(target.getWorld())) {
+
+        return false;
+    }
+
+
+    /*
+     * Horizontal movement direction.
+     */
+    Vector horizontal =
+            direction.clone();
+
+    horizontal.setY(0);
+
+
+    if (horizontal.lengthSquared() < 0.0001) {
+
+        return false;
+    }
+
+
+    horizontal.normalize();
+
+
+    /*
+     * Check approximately one block in front of
+     * the horse.
+     */
+    Location front =
+            horseLocation.clone()
+                    .add(
+                            horizontal.getX() * 0.9,
+                            0,
+                            horizontal.getZ() * 0.9
+                    );
+
+
+    /*
+     * Block at the horse's feet.
+     */
+    Block frontFeet =
+            front.getBlock();
+
+
+    /*
+     * Block at the horse's head.
+     */
+    Block frontHead =
+            front.clone()
+                    .add(0, 1, 0)
+                    .getBlock();
+
+
+    /*
+     * Block above the obstacle.
+     */
+    Block frontAbove =
+            front.clone()
+                    .add(0, 2, 0)
+                    .getBlock();
+
+
+    /*
+     * No obstacle in front.
+     */
+    if (frontFeet.isPassable()) {
+
+        return false;
+    }
+
+
+    /*
+     * There is a solid block at foot level.
+     *
+     * For a normal 1-block obstacle, the horse needs:
+     *
+     *   feet       -> obstacle
+     *   head       -> free
+     *   above      -> free
+     *
+     * This allows the horse to jump over it.
+     */
+    if (!frontHead.isPassable()) {
+
+        return false;
+    }
+
+
+    if (!frontAbove.isPassable()) {
+
+        return false;
+    }
+
+
+    /*
+     * Make sure the obstacle is not an unsafe block.
+     */
+    Material obstacleType =
+            frontFeet.getType();
+
+
+    if (obstacleType == Material.LAVA
+            || obstacleType == Material.WATER
+            || obstacleType == Material.CACTUS
+            || obstacleType == Material.MAGMA_BLOCK
+            || obstacleType == Material.CAMPFIRE
+            || obstacleType == Material.SOUL_CAMPFIRE) {
+
+        return false;
+    }
+
+
+    /*
+     * Check that there is actually enough room to land
+     * on the other side of the obstacle.
+     */
+    Location landing =
+            front.clone()
+                    .add(
+                            horizontal.getX() * 1.1,
+                            1.0,
+                            horizontal.getZ() * 1.1
+                    );
+
+
+    Block landingFeet =
+            landing.getBlock();
+
+
+    Block landingHead =
+            landing.clone()
+                    .add(0, 1, 0)
+                    .getBlock();
+
+
+    Block landingGround =
+            landing.clone()
+                    .add(0, -1, 0)
+                    .getBlock();
+
+
+    /*
+     * We need:
+     *
+     * - solid ground
+     * - free feet space
+     * - free head space
+     */
+    if (!landingGround.getType().isSolid()) {
+
+        return false;
+    }
+
+
+    if (!landingFeet.isPassable()) {
+
+        return false;
+    }
+
+
+    if (!landingHead.isPassable()) {
+
+        return false;
+    }
+
+
+    return true;
+}
+
 }

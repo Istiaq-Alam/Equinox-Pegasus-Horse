@@ -2,7 +2,9 @@ package com.istiak.equinox.mounts;
 
 import com.istiak.equinox.EquinoxPlugin;
 
+import org.bukkit.plugin.Plugin;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.World;
@@ -25,15 +27,43 @@ import java.util.Map;
 import java.util.UUID;
 
 
+/**
+ * ============================================================
+ * EQUINOX MOUNT MANAGER
+ * ============================================================
+ *
+ * IMPORTANT DESIGN:
+ *
+ * HOME LOCATION
+ * = Permanent location where the horse was bound.
+ *
+ * LAST KNOWN LOCATION
+ * = Last tracked location of the REAL horse.
+ *
+ * The home location is NEVER automatically changed.
+ *
+ * The last known location is used to locate the real horse
+ * when its chunk is unloaded.
+ *
+ * THIS SYSTEM NEVER CREATES A REPLACEMENT HORSE.
+ * THIS SYSTEM NEVER DUPLICATES A HORSE.
+ *
+ * ============================================================
+ */
 public final class MountManager {
 
     private final EquinoxPlugin plugin;
 
 
     /*
-     * Player UUID -> MountData
+     * ========================================================
+     * MOUNT MAPS
+     * ========================================================
      */
 
+    /*
+     * Player UUID -> MountData
+     */
     private final Map<UUID, MountData> playerMounts =
             new HashMap<>();
 
@@ -41,20 +71,37 @@ public final class MountManager {
     /*
      * Horse UUID -> Player UUID
      */
-
     private final Map<UUID, UUID> horseOwners =
             new HashMap<>();
 
+
+    /*
+     * ========================================================
+     * PERSISTENT DATA KEYS
+     * ========================================================
+     */
 
     private final NamespacedKey ownerKey;
 
     private final NamespacedKey registeredKey;
 
 
+    /*
+     * ========================================================
+     * FILE STORAGE
+     * ========================================================
+     */
+
     private File mountsFile;
 
     private FileConfiguration mountsConfig;
 
+
+    /*
+     * ========================================================
+     * CONSTRUCTOR
+     * ========================================================
+     */
 
     public MountManager(
             EquinoxPlugin plugin
@@ -62,17 +109,20 @@ public final class MountManager {
 
         this.plugin = plugin;
 
+
         this.ownerKey =
                 new NamespacedKey(
                         plugin,
                         "mount_owner"
                 );
 
+
         this.registeredKey =
                 new NamespacedKey(
                         plugin,
                         "registered_mount"
                 );
+
 
         setupStorage();
 
@@ -82,7 +132,7 @@ public final class MountManager {
 
     /*
      * ========================================================
-     * STORAGE
+     * STORAGE SETUP
      * ========================================================
      */
 
@@ -93,11 +143,13 @@ public final class MountManager {
             plugin.getDataFolder().mkdirs();
         }
 
+
         mountsFile =
                 new File(
                         plugin.getDataFolder(),
                         "mounts.yml"
                 );
+
 
         if (!mountsFile.exists()) {
 
@@ -114,6 +166,7 @@ public final class MountManager {
                 exception.printStackTrace();
             }
         }
+
 
         mountsConfig =
                 YamlConfiguration.loadConfiguration(
@@ -133,29 +186,34 @@ public final class MountManager {
             Horse horse
     ) {
 
-        if (player == null
-                || horse == null) {
+        if (player == null || horse == null) {
 
             return false;
         }
+
 
         if (!horse.isTamed()) {
 
             return false;
         }
 
+
         if (horse.getOwner() == null
                 || !horse.getOwner()
                 .getUniqueId()
-                .equals(
-                        player.getUniqueId()
-                )) {
+                .equals(player.getUniqueId())) {
 
             return false;
         }
 
+
+        /*
+         * Horse must have Equinox armor.
+         */
+
         ItemStack armor =
                 horse.getInventory().getArmor();
+
 
         if (!plugin.getHorseArmorManager()
                 .isEquinoxArmor(armor)) {
@@ -172,14 +230,13 @@ public final class MountManager {
 
 
         /*
-         * Remove OLD horse mapping only.
-         *
-         * Do NOT call unregisterMount() here because that would
-         * delete the player's complete mount data.
+         * Preserve original registration time if replacing
+         * an existing registration.
          */
 
         MountData oldMount =
                 playerMounts.get(playerId);
+
 
         if (oldMount != null) {
 
@@ -189,13 +246,17 @@ public final class MountManager {
         }
 
 
+        long registeredAt =
+                oldMount != null
+                        ? oldMount.getRegisteredAt()
+                        : System.currentTimeMillis();
+
+
         MountData mountData =
                 createMountData(
                         player,
                         horse,
-                        oldMount != null
-                                ? oldMount.getRegisteredAt()
-                                : System.currentTimeMillis()
+                        registeredAt
                 );
 
 
@@ -203,6 +264,7 @@ public final class MountManager {
                 playerId,
                 mountData
         );
+
 
         horseOwners.put(
                 horseId,
@@ -220,6 +282,7 @@ public final class MountManager {
                 mountData
         );
 
+
         return true;
     }
 
@@ -236,7 +299,21 @@ public final class MountManager {
             long registeredAt
     ) {
 
+        /*
+         * IMPORTANT:
+         *
+         * Home location is permanently the bind location.
+         */
+
         Location homeLocation =
+                horse.getLocation().clone();
+
+
+        /*
+         * Initially last known location is the same location.
+         */
+
+        Location lastKnownLocation =
                 horse.getLocation().clone();
 
 
@@ -267,78 +344,69 @@ public final class MountManager {
                 horse.getJumpStrength();
 
 
-        MountData data =
-                new MountData(
-                        player.getUniqueId(),
-                        horse.getUniqueId(),
-                        getHorseName(horse),
-                        homeLocation,
-                        horse.getColor(),
-                        horse.getStyle(),
-                        maxHealth,
-                        health,
-                        movementSpeed,
-                        jumpStrength,
-                        horse.getInventory()
-                                .getArmor()
-                );
+        return new MountData(
+                player.getUniqueId(),
+                horse.getUniqueId(),
+                getHorseName(horse),
 
+                /*
+                 * Permanent bind location.
+                 */
+                homeLocation,
 
-        /*
-         * Preserve original registration timestamp.
-         */
+                /*
+                 * Current / last known location.
+                 */
+                lastKnownLocation,
 
-        if (registeredAt != data.getRegisteredAt()) {
+                horse.getColor(),
+                horse.getStyle(),
 
-            return new MountData(
-                    player.getUniqueId(),
-                    horse.getUniqueId(),
-                    getHorseName(horse),
-                    homeLocation,
-                    horse.getColor(),
-                    horse.getStyle(),
-                    maxHealth,
-                    health,
-                    movementSpeed,
-                    jumpStrength,
-                    horse.getInventory().getArmor(),
-                    registeredAt
-            );
-        }
+                maxHealth,
+                health,
+                movementSpeed,
+                jumpStrength,
 
-        return data;
+                horse.getInventory().getArmor(),
+
+                registeredAt
+        );
     }
 
 
     /*
      * ========================================================
-     * UPDATE MOUNT FROM LOADED HORSE
+     * UPDATE MOUNT DATA FROM REAL HORSE
      * ========================================================
-     *
-     * This is useful before saving.
      */
 
     public void updateMountFromHorse(
             Horse horse
     ) {
 
-        if (horse == null) {
+        if (horse == null
+                || horse.isDead()
+                || !horse.isValid()) {
 
             return;
         }
+
 
         UUID ownerId =
                 horseOwners.get(
                         horse.getUniqueId()
                 );
 
+
         if (ownerId == null) {
 
             return;
         }
 
+
         MountData data =
                 playerMounts.get(ownerId);
+
 
         if (data == null) {
 
@@ -350,9 +418,11 @@ public final class MountManager {
                 getHorseName(horse)
         );
 
+
         data.setColor(
                 horse.getColor()
         );
+
 
         data.setStyle(
                 horse.getStyle()
@@ -393,80 +463,33 @@ public final class MountManager {
         ItemStack armor =
                 horse.getInventory().getArmor();
 
+
         if (plugin.getHorseArmorManager()
                 .isEquinoxArmor(armor)) {
 
-            data.setArmor(armor);
-        }
-    }
-
-
-    /*
-     * ========================================================
-     * UNREGISTER
-     * ========================================================
-     */
-
-    public boolean unregisterMount(
-            UUID horseId
-    ) {
-
-        if (horseId == null) {
-
-            return false;
-        }
-
-        UUID ownerId =
-                horseOwners.remove(horseId);
-
-        if (ownerId == null) {
-
-            return false;
+            data.setArmor(
+                    armor
+            );
         }
 
 
-        playerMounts.remove(ownerId);
+        /*
+         * Update ONLY last known location.
+         *
+         * NEVER change home location here.
+         */
 
-        removeMountFromFile(ownerId);
+        Location location =
+                horse.getLocation();
 
 
-        Horse horse =
-                getLoadedHorse(horseId);
+        if (location != null
+                && location.getWorld() != null) {
 
-        if (horse != null) {
-
-            PersistentDataContainer container =
-                    horse.getPersistentDataContainer();
-
-            container.remove(ownerKey);
-
-            container.remove(registeredKey);
+            data.setLastKnownLocation(
+                    location.clone()
+            );
         }
-
-        return true;
-    }
-
-
-    public boolean unregisterPlayerMount(
-            Player player
-    ) {
-
-        if (player == null) {
-
-            return false;
-        }
-
-        MountData mountData =
-                getMount(player);
-
-        if (mountData == null) {
-
-            return false;
-        }
-
-        return unregisterMount(
-                mountData.getHorseId()
-        );
     }
 
 
@@ -485,6 +508,7 @@ public final class MountManager {
             return null;
         }
 
+
         return playerMounts.get(
                 player.getUniqueId()
         );
@@ -500,7 +524,10 @@ public final class MountManager {
             return null;
         }
 
-        return playerMounts.get(playerId);
+
+        return playerMounts.get(
+                playerId
+        );
     }
 
 
@@ -539,16 +566,17 @@ public final class MountManager {
             Horse horse
     ) {
 
-        if (player == null
-                || horse == null) {
+        if (player == null || horse == null) {
 
             return false;
         }
+
 
         UUID ownerId =
                 horseOwners.get(
                         horse.getUniqueId()
                 );
+
 
         return ownerId != null
                 && ownerId.equals(
@@ -559,7 +587,7 @@ public final class MountManager {
 
     /*
      * ========================================================
-     * LOADED HORSE
+     * GET LOADED MOUNT
      * ========================================================
      */
 
@@ -570,10 +598,12 @@ public final class MountManager {
         MountData mountData =
                 getMount(player);
 
+
         if (mountData == null) {
 
             return null;
         }
+
 
         return getLoadedHorse(
                 mountData.getHorseId()
@@ -590,10 +620,12 @@ public final class MountManager {
             return null;
         }
 
+
         for (World world : Bukkit.getWorlds()) {
 
             Entity entity =
                     world.getEntity(horseId);
+
 
             if (entity instanceof Horse horse
                     && horse.isValid()
@@ -603,31 +635,181 @@ public final class MountManager {
             }
         }
 
+
         return null;
     }
 
 
     /*
      * ========================================================
-     * REPLACE HORSE UUID
+     * LOAD A SINGLE CHUNK
      * ========================================================
-     *
-     * Used by SummonManager when a replacement horse is created.
      */
 
-    public boolean replaceMountHorse(
-            Player player,
-            Horse newHorse
+    private boolean loadChunkAtLocation(
+            Location location
     ) {
 
-        if (player == null
-                || newHorse == null) {
+        if (location == null
+                || location.getWorld() == null) {
+            return false;
+        }
+
+        World world = location.getWorld();
+        int chunkX = location.getBlockX() >> 4;
+        int chunkZ = location.getBlockZ() >> 4;
+
+        try {
+            /*
+             * Keep the chunk loaded while the whistle recovery
+             * task is searching for the real horse entity.
+             */
+            world.addPluginChunkTicket(
+                    chunkX,
+                    chunkZ,
+                    plugin
+            );
+
+            world.getChunkAt(
+                    chunkX,
+                    chunkZ,
+                    false
+            );
+
+            return true;
+
+        } catch (Exception exception) {
+            return false;
+        }
+    }
+
+
+    /**
+     * Releases temporary whistle-recovery tickets around a location.
+     */
+    public void releaseMountRecoveryArea(
+            Location location
+    ) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+
+        World world = location.getWorld();
+        int centerChunkX = location.getBlockX() >> 4;
+        int centerChunkZ = location.getBlockZ() >> 4;
+
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                world.removePluginChunkTicket(
+                        centerChunkX + x,
+                        centerChunkZ + z,
+                        plugin
+                );
+            }
+        }
+    }
+
+
+    /*
+     * ========================================================
+     * LOAD AREA AROUND LOCATION
+     * ========================================================
+     *
+     * Loads a 3x3 chunk area.
+     *
+     * This does NOT spawn anything.
+     */
+
+    private boolean loadAreaAroundLocation(
+        Location location
+) {
+
+    if (location == null
+            || location.getWorld() == null) {
+
+        return false;
+    }
+
+
+    World world =
+            location.getWorld();
+
+
+    int centerChunkX =
+            location.getBlockX() >> 4;
+
+
+    int centerChunkZ =
+            location.getBlockZ() >> 4;
+
+
+    boolean loadedAnything =
+            false;
+
+
+    for (int x = -1; x <= 1; x++) {
+
+        for (int z = -1; z <= 1; z++) {
+
+            try {
+
+                Chunk chunk =
+                        world.getChunkAt(
+                                centerChunkX + x,
+                                centerChunkZ + z
+                        );
+
+
+                if (chunk != null) {
+
+                    /*
+                     * Keep this chunk loaded temporarily.
+                     */
+
+                    chunk.addPluginChunkTicket(
+                            plugin
+                    );
+
+
+                    loadedAnything = true;
+                }
+
+            } catch (Exception exception) {
+
+                plugin.getLogger().warning(
+                        "Could not load mount chunk "
+                                + (centerChunkX + x)
+                                + ", "
+                                + (centerChunkZ + z)
+                );
+            }
+        }
+    }
+
+
+    return loadedAnything;
+}
+
+
+    /*
+     * ========================================================
+     * LOAD LAST KNOWN MOUNT AREA
+     * ========================================================
+     */
+
+    public boolean loadMountLastKnownArea(
+            Player player
+    ) {
+
+        if (player == null) {
 
             return false;
         }
 
+
         MountData mountData =
                 getMount(player);
+
 
         if (mountData == null) {
 
@@ -635,40 +817,585 @@ public final class MountManager {
         }
 
 
-        UUID oldHorseId =
-                mountData.getHorseId();
-
-        UUID newHorseId =
-                newHorse.getUniqueId();
+        Location lastKnown =
+                mountData.getLastKnownLocation();
 
 
-        horseOwners.remove(oldHorseId);
+        if (lastKnown == null) {
+
+            return false;
+        }
 
 
-        mountData.setHorseId(newHorseId);
-
-
-        horseOwners.put(
-                newHorseId,
-                player.getUniqueId()
+        return loadAreaAroundLocation(
+                lastKnown
         );
-
-
-        applyMountPdc(
-                player.getUniqueId(),
-                newHorse
-        );
-
-
-        saveMount(mountData);
-
-        return true;
     }
 
 
     /*
      * ========================================================
-     * PDC
+     * LOAD LAST KNOWN MOUNT CHUNK
+     * ========================================================
+     */
+
+    public boolean loadMountLastKnownChunk(
+            Player player
+    ) {
+
+        if (player == null) {
+
+            return false;
+        }
+
+
+        MountData mountData =
+                getMount(player);
+
+
+        if (mountData == null) {
+
+            return false;
+        }
+
+
+        return loadChunkAtLocation(
+                mountData.getLastKnownLocation()
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * LOAD HOME CHUNK
+     * ========================================================
+     *
+     * FALLBACK ONLY.
+     *
+     * Home is the permanent bind location.
+     */
+
+    public boolean loadMountHomeChunk(
+            Player player
+    ) {
+
+        if (player == null) {
+
+            return false;
+        }
+
+
+        MountData mountData =
+                getMount(player);
+
+
+        if (mountData == null) {
+
+            return false;
+        }
+
+
+        return loadChunkAtLocation(
+                mountData.getHomeLocation()
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * LOAD HOME AREA
+     * ========================================================
+     */
+
+    public boolean loadMountHomeArea(
+            Player player
+    ) {
+
+        if (player == null) {
+
+            return false;
+        }
+
+
+        MountData mountData =
+                getMount(player);
+
+
+        if (mountData == null) {
+
+            return false;
+        }
+
+
+        return loadAreaAroundLocation(
+                mountData.getHomeLocation()
+        );
+    }
+
+
+   /*
+ * ========================================================
+ * FIND AND LOAD THE REAL MOUNT
+ * ========================================================
+ *
+ * SEARCH ORDER:
+ *
+ * 1. Already loaded horse.
+ * 2. Last-known chunk.
+ * 3. Exact UUID inside last-known chunk.
+ * 4. Nearby last-known chunks.
+ * 5. Permanent HOME as final recovery fallback.
+ *
+ * IMPORTANT:
+ *
+ * NEVER CREATE A NEW HORSE.
+ *
+ * We only recover the REAL registered horse.
+ * ========================================================
+ */
+
+public Horse findAndLoadRealMount(
+        Player player
+) {
+
+    if (player == null) {
+
+        return null;
+    }
+
+
+    MountData mountData =
+            getMount(player);
+
+
+    if (mountData == null) {
+
+        return null;
+    }
+
+
+    UUID horseId =
+            mountData.getHorseId();
+
+
+    /*
+     * ====================================================
+     * STEP 1
+     * ====================================================
+     *
+     * Is the real horse already loaded?
+     */
+
+    Horse horse =
+            getLoadedHorse(
+                    horseId
+            );
+
+
+    if (horse != null) {
+
+        return horse;
+    }
+
+
+    /*
+     * ====================================================
+     * STEP 2
+     * ====================================================
+     *
+     * LAST KNOWN LOCATION.
+     */
+
+    Location lastKnown =
+            mountData.getLastKnownLocation();
+
+
+    if (lastKnown != null
+            && lastKnown.getWorld() != null) {
+
+        /*
+         * Search the exact last-known chunk.
+         */
+
+        horse =
+                findHorseInChunk(
+                        lastKnown,
+                        horseId
+                );
+
+
+        if (horse != null) {
+
+            return horse;
+        }
+
+
+        /*
+         * Search the surrounding 3x3 chunks.
+         *
+         * This handles cases where the horse moved slightly
+         * after the last location was persisted.
+         */
+
+        World world =
+                lastKnown.getWorld();
+
+
+        int centerChunkX =
+                lastKnown.getBlockX() >> 4;
+
+
+        int centerChunkZ =
+                lastKnown.getBlockZ() >> 4;
+
+
+        for (int radius = 1;
+             radius <= 2;
+             radius++) {
+
+            for (int x = -radius;
+                 x <= radius;
+                 x++) {
+
+                for (int z = -radius;
+                     z <= radius;
+                     z++) {
+
+                    Location chunkLocation =
+                            new Location(
+                                    world,
+                                    (centerChunkX + x) * 16 + 8,
+                                    lastKnown.getY(),
+                                    (centerChunkZ + z) * 16 + 8
+                            );
+
+
+                    horse =
+                            findHorseInChunk(
+                                    chunkLocation,
+                                    horseId
+                            );
+
+
+                    if (horse != null) {
+
+                        return horse;
+                    }
+                }
+            }
+        }
+    }
+
+
+    /*
+     * ====================================================
+     * STEP 3
+     * ====================================================
+     *
+     * Final fallback: permanent HOME.
+     *
+     * This does NOT modify HOME.
+     */
+
+    Location home =
+            mountData.getHomeLocation();
+
+
+    if (home != null
+            && home.getWorld() != null) {
+
+        horse =
+                findHorseInChunk(
+                        home,
+                        horseId
+                );
+
+
+        if (horse != null) {
+
+            return horse;
+        }
+    }
+
+
+    return null;
+}
+
+/*
+ * ========================================================
+ * RELEASE MOUNT CHUNK TICKET
+ * ========================================================
+ */
+
+public void releaseMountChunkTicket(
+        Horse horse
+) {
+
+    if (horse == null
+            || horse.getWorld() == null) {
+
+        return;
+    }
+
+
+    Chunk chunk =
+            horse.getChunk();
+
+
+    try {
+
+        chunk.removePluginChunkTicket(
+                plugin
+        );
+
+    } catch (Exception ignored) {
+    }
+}
+
+
+    /*
+     * ========================================================
+     * UPDATE LAST KNOWN LOCATION
+     * ========================================================
+     *
+     * IMPORTANT:
+     *
+     * DOES NOT CHANGE HOME LOCATION.
+     */
+
+    public void updateLastKnownLocation(
+            Horse horse
+    ) {
+
+        if (horse == null
+                || horse.isDead()
+                || !horse.isValid()) {
+
+            return;
+        }
+
+
+        UUID ownerId =
+                horseOwners.get(
+                        horse.getUniqueId()
+                );
+
+
+        if (ownerId == null) {
+
+            return;
+        }
+
+
+        MountData mountData =
+                playerMounts.get(ownerId);
+
+
+        if (mountData == null) {
+
+            return;
+        }
+
+
+        Location location =
+                horse.getLocation();
+
+
+        if (location == null
+                || location.getWorld() == null) {
+
+            return;
+        }
+
+
+        /*
+         * ONLY update last known location.
+         */
+
+        mountData.setLastKnownLocation(
+                location.clone()
+        );
+
+
+        saveMount(
+                mountData
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * RECORD MOUNT LOCATION
+     * ========================================================
+     *
+     * updateHome = false
+     *
+     * Normal horse movement should always use false.
+     *
+     * updateHome = true
+     *
+     * Only use this if you intentionally want to move the
+     * permanent bind location.
+     */
+
+    public void recordMountLocation(
+            Horse horse,
+            boolean updateHome
+    ) {
+
+        if (horse == null
+                || horse.isDead()
+                || !horse.isValid()) {
+
+            return;
+        }
+
+
+        UUID ownerId =
+                horseOwners.get(
+                        horse.getUniqueId()
+                );
+
+
+        if (ownerId == null) {
+
+            return;
+        }
+
+
+        MountData mountData =
+                playerMounts.get(ownerId);
+
+
+        if (mountData == null) {
+
+            return;
+        }
+
+
+        Location location =
+                horse.getLocation();
+
+
+        if (location == null
+                || location.getWorld() == null) {
+
+            return;
+        }
+
+
+        /*
+         * Always update last known location.
+         */
+
+        mountData.setLastKnownLocation(
+                location.clone()
+        );
+
+
+        /*
+         * Home is changed ONLY when explicitly requested.
+         */
+
+        if (updateHome) {
+
+            mountData.setHomeLocation(
+                    location.clone()
+            );
+        }
+
+
+        saveMount(
+                mountData
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * UNREGISTER
+     * ========================================================
+     */
+
+    public boolean unregisterMount(
+            UUID horseId
+    ) {
+
+        if (horseId == null) {
+
+            return false;
+        }
+
+
+        UUID ownerId =
+                horseOwners.remove(horseId);
+
+
+        if (ownerId == null) {
+
+            return false;
+        }
+
+
+        playerMounts.remove(
+                ownerId
+        );
+
+
+        removeMountFromFile(
+                ownerId
+        );
+
+
+        Horse horse =
+                getLoadedHorse(horseId);
+
+
+        if (horse != null) {
+
+            PersistentDataContainer container =
+                    horse.getPersistentDataContainer();
+
+
+            container.remove(ownerKey);
+
+            container.remove(registeredKey);
+        }
+
+
+        return true;
+    }
+
+
+    public boolean unregisterPlayerMount(
+            Player player
+    ) {
+
+        if (player == null) {
+
+            return false;
+        }
+
+
+        MountData mountData =
+                getMount(player);
+
+
+        if (mountData == null) {
+
+            return false;
+        }
+
+
+        return unregisterMount(
+                mountData.getHorseId()
+        );
+    }
+
+
+    /*
+     * ========================================================
+     * APPLY PDC
      * ========================================================
      */
 
@@ -680,11 +1407,13 @@ public final class MountManager {
         PersistentDataContainer container =
                 horse.getPersistentDataContainer();
 
+
         container.set(
                 ownerKey,
                 PersistentDataType.STRING,
                 ownerId.toString()
         );
+
 
         container.set(
                 registeredKey,
@@ -696,14 +1425,14 @@ public final class MountManager {
 
     /*
      * ========================================================
-     * SAVE
+     * SAVE ALL MOUNTS
      * ========================================================
      */
 
     public void saveAllMounts() {
 
         /*
-         * First update information from currently loaded horses.
+         * Update all currently loaded real horses.
          */
 
         for (MountData mountData
@@ -714,12 +1443,19 @@ public final class MountManager {
                             mountData.getHorseId()
                     );
 
+
             if (horse != null) {
 
-                updateMountFromHorse(horse);
+                updateMountFromHorse(
+                        horse
+                );
             }
         }
 
+
+        /*
+         * Clear old mount section.
+         */
 
         mountsConfig.set(
                 "mounts",
@@ -727,10 +1463,16 @@ public final class MountManager {
         );
 
 
+        /*
+         * Save all current data.
+         */
+
         for (MountData mountData
                 : playerMounts.values()) {
 
-            saveMountToConfig(mountData);
+            saveMountToConfig(
+                    mountData
+            );
         }
 
 
@@ -742,11 +1484,26 @@ public final class MountManager {
             MountData mountData
     ) {
 
-        saveMountToConfig(mountData);
+        if (mountData == null) {
+
+            return;
+        }
+
+
+        saveMountToConfig(
+                mountData
+        );
+
 
         saveFile();
     }
 
+
+    /*
+     * ========================================================
+     * SAVE MOUNT TO CONFIG
+     * ========================================================
+     */
 
     private void saveMountToConfig(
             MountData mountData
@@ -757,20 +1514,27 @@ public final class MountManager {
                         + mountData.getOwnerId();
 
 
+        /*
+         * BASIC
+         */
+
         mountsConfig.set(
                 path + ".owner",
                 mountData.getOwnerId().toString()
         );
+
 
         mountsConfig.set(
                 path + ".horse",
                 mountData.getHorseId().toString()
         );
 
+
         mountsConfig.set(
                 path + ".horse-name",
                 mountData.getHorseName()
         );
+
 
         mountsConfig.set(
                 path + ".registered-at",
@@ -779,37 +1543,43 @@ public final class MountManager {
 
 
         /*
-         * Home.
+         * ====================================================
+         * PERMANENT HOME / BIND LOCATION
+         * ====================================================
          */
 
         if (mountData.getHomeWorldId() != null) {
 
             mountsConfig.set(
                     path + ".home.world",
-                    mountData.getHomeWorldId()
-                            .toString()
+                    mountData.getHomeWorldId().toString()
             );
         }
+
 
         mountsConfig.set(
                 path + ".home.x",
                 mountData.getHomeX()
         );
 
+
         mountsConfig.set(
                 path + ".home.y",
                 mountData.getHomeY()
         );
+
 
         mountsConfig.set(
                 path + ".home.z",
                 mountData.getHomeZ()
         );
 
+
         mountsConfig.set(
                 path + ".home.yaw",
                 mountData.getHomeYaw()
         );
+
 
         mountsConfig.set(
                 path + ".home.pitch",
@@ -818,13 +1588,68 @@ public final class MountManager {
 
 
         /*
-         * Appearance.
+         * ====================================================
+         * LAST KNOWN LOCATION
+         * ====================================================
+         */
+
+        Location lastKnown =
+                mountData.getLastKnownLocation();
+
+
+        if (lastKnown != null
+                && lastKnown.getWorld() != null) {
+
+            mountsConfig.set(
+                    path + ".last-known.world",
+                    lastKnown.getWorld()
+                            .getUID()
+                            .toString()
+            );
+
+
+            mountsConfig.set(
+                    path + ".last-known.x",
+                    lastKnown.getX()
+            );
+
+
+            mountsConfig.set(
+                    path + ".last-known.y",
+                    lastKnown.getY()
+            );
+
+
+            mountsConfig.set(
+                    path + ".last-known.z",
+                    lastKnown.getZ()
+            );
+
+
+            mountsConfig.set(
+                    path + ".last-known.yaw",
+                    lastKnown.getYaw()
+            );
+
+
+            mountsConfig.set(
+                    path + ".last-known.pitch",
+                    lastKnown.getPitch()
+            );
+        }
+
+
+        /*
+         * ====================================================
+         * APPEARANCE
+         * ====================================================
          */
 
         mountsConfig.set(
                 path + ".appearance.color",
                 mountData.getColor().name()
         );
+
 
         mountsConfig.set(
                 path + ".appearance.style",
@@ -833,7 +1658,9 @@ public final class MountManager {
 
 
         /*
-         * Attributes.
+         * ====================================================
+         * ATTRIBUTES
+         * ====================================================
          */
 
         mountsConfig.set(
@@ -841,15 +1668,18 @@ public final class MountManager {
                 mountData.getMaxHealth()
         );
 
+
         mountsConfig.set(
                 path + ".attributes.health",
                 mountData.getHealth()
         );
 
+
         mountsConfig.set(
                 path + ".attributes.movement-speed",
                 mountData.getMovementSpeed()
         );
+
 
         mountsConfig.set(
                 path + ".attributes.jump-strength",
@@ -858,7 +1688,9 @@ public final class MountManager {
 
 
         /*
-         * Complete ItemStack including PDC enchantments.
+         * ====================================================
+         * ARMOR
+         * ====================================================
          */
 
         mountsConfig.set(
@@ -867,6 +1699,12 @@ public final class MountManager {
         );
     }
 
+
+    /*
+     * ========================================================
+     * REMOVE MOUNT
+     * ========================================================
+     */
 
     private void removeMountFromFile(
             UUID ownerId
@@ -877,15 +1715,24 @@ public final class MountManager {
                 null
         );
 
+
         saveFile();
     }
 
+
+    /*
+     * ========================================================
+     * SAVE FILE
+     * ========================================================
+     */
 
     private void saveFile() {
 
         try {
 
-            mountsConfig.save(mountsFile);
+            mountsConfig.save(
+                    mountsFile
+            );
 
         } catch (IOException exception) {
 
@@ -900,7 +1747,7 @@ public final class MountManager {
 
     /*
      * ========================================================
-     * LOAD
+     * LOAD MOUNTS
      * ========================================================
      */
 
@@ -910,6 +1757,7 @@ public final class MountManager {
                 mountsConfig.getConfigurationSection(
                         "mounts"
                 );
+
 
         if (mountsSection == null) {
 
@@ -926,19 +1774,38 @@ public final class MountManager {
                         "mounts." + ownerString;
 
 
+                /*
+                 * BASIC UUID DATA
+                 */
+
+                String ownerValue =
+                        mountsConfig.getString(
+                                path + ".owner"
+                        );
+
+
+                String horseValue =
+                        mountsConfig.getString(
+                                path + ".horse"
+                        );
+
+
+                if (ownerValue == null
+                        || horseValue == null) {
+
+                    continue;
+                }
+
+
                 UUID ownerId =
                         UUID.fromString(
-                                mountsConfig.getString(
-                                        path + ".owner"
-                                )
+                                ownerValue
                         );
 
 
                 UUID horseId =
                         UUID.fromString(
-                                mountsConfig.getString(
-                                        path + ".horse"
-                                )
+                                horseValue
                         );
 
 
@@ -956,26 +1823,19 @@ public final class MountManager {
                         );
 
 
-                String worldString =
+                /*
+                 * ====================================================
+                 * LOAD HOME LOCATION
+                 * ====================================================
+                 */
+
+                String homeWorldString =
                         mountsConfig.getString(
                                 path + ".home.world"
                         );
 
 
-                /*
-                 * Old format compatibility.
-                 */
-
-                if (worldString == null) {
-
-                    worldString =
-                            mountsConfig.getString(
-                                    path + ".world"
-                            );
-                }
-
-
-                if (worldString == null) {
+                if (homeWorldString == null) {
 
                     plugin.getLogger().warning(
                             "No home world found for mount: "
@@ -986,16 +1846,18 @@ public final class MountManager {
                 }
 
 
-                World world =
+                World homeWorld =
                         Bukkit.getWorld(
-                                UUID.fromString(worldString)
+                                UUID.fromString(
+                                        homeWorldString
+                                )
                         );
 
 
-                if (world == null) {
+                if (homeWorld == null) {
 
                     plugin.getLogger().warning(
-                            "Home world not loaded for mount: "
+                            "Home world is not loaded for mount: "
                                     + horseId
                     );
 
@@ -1003,50 +1865,108 @@ public final class MountManager {
                 }
 
 
-                double x =
-                        mountsConfig.contains(path + ".home.x")
-                                ? mountsConfig.getDouble(path + ".home.x")
-                                : mountsConfig.getDouble(path + ".x");
-
-
-                double y =
-                        mountsConfig.contains(path + ".home.y")
-                                ? mountsConfig.getDouble(path + ".home.y")
-                                : mountsConfig.getDouble(path + ".y");
-
-
-                double z =
-                        mountsConfig.contains(path + ".home.z")
-                                ? mountsConfig.getDouble(path + ".home.z")
-                                : mountsConfig.getDouble(path + ".z");
-
-
-                float yaw =
-                        (float) (
-                                mountsConfig.contains(path + ".home.yaw")
-                                        ? mountsConfig.getDouble(path + ".home.yaw")
-                                        : mountsConfig.getDouble(path + ".yaw")
-                        );
-
-
-                float pitch =
-                        (float) (
-                                mountsConfig.contains(path + ".home.pitch")
-                                        ? mountsConfig.getDouble(path + ".home.pitch")
-                                        : mountsConfig.getDouble(path + ".pitch")
-                        );
-
-
-                Location home =
+                Location homeLocation =
                         new Location(
-                                world,
-                                x,
-                                y,
-                                z,
-                                yaw,
-                                pitch
+                                homeWorld,
+
+                                mountsConfig.getDouble(
+                                        path + ".home.x"
+                                ),
+
+                                mountsConfig.getDouble(
+                                        path + ".home.y"
+                                ),
+
+                                mountsConfig.getDouble(
+                                        path + ".home.z"
+                                ),
+
+                                (float) mountsConfig.getDouble(
+                                        path + ".home.yaw"
+                                ),
+
+                                (float) mountsConfig.getDouble(
+                                        path + ".home.pitch"
+                                )
                         );
 
+
+                /*
+                 * ====================================================
+                 * LOAD LAST KNOWN LOCATION
+                 * ====================================================
+                 */
+
+                Location lastKnownLocation =
+                        homeLocation.clone();
+
+
+                String lastWorldString =
+                        mountsConfig.getString(
+                                path + ".last-known.world"
+                        );
+
+
+                if (lastWorldString != null) {
+
+                    try {
+
+                        World lastWorld =
+                                Bukkit.getWorld(
+                                        UUID.fromString(
+                                                lastWorldString
+                                        )
+                                );
+
+
+                        if (lastWorld != null) {
+
+                            lastKnownLocation =
+                                    new Location(
+                                            lastWorld,
+
+                                            mountsConfig.getDouble(
+                                                    path + ".last-known.x"
+                                            ),
+
+                                            mountsConfig.getDouble(
+                                                    path + ".last-known.y"
+                                            ),
+
+                                            mountsConfig.getDouble(
+                                                    path + ".last-known.z"
+                                            ),
+
+                                            (float) mountsConfig.getDouble(
+                                                    path + ".last-known.yaw"
+                                            ),
+
+                                            (float) mountsConfig.getDouble(
+                                                    path + ".last-known.pitch"
+                                            )
+                                    );
+                        }
+
+                    } catch (Exception ignored) {
+
+                        /*
+                         * Old mounts.yml compatibility:
+                         *
+                         * If last-known data is invalid,
+                         * use the permanent home location.
+                         */
+
+                        lastKnownLocation =
+                                homeLocation.clone();
+                    }
+                }
+
+
+                /*
+                 * ====================================================
+                 * APPEARANCE
+                 * ====================================================
+                 */
 
                 Horse.Color color =
                         parseColor(
@@ -1063,6 +1983,12 @@ public final class MountManager {
                                 )
                         );
 
+
+                /*
+                 * ====================================================
+                 * ATTRIBUTES
+                 * ====================================================
+                 */
 
                 double maxHealth =
                         mountsConfig.getDouble(
@@ -1098,19 +2024,38 @@ public final class MountManager {
                         );
 
 
+                /*
+                 * ====================================================
+                 * CREATE DATA
+                 * ====================================================
+                 */
+
                 MountData mountData =
                         new MountData(
                                 ownerId,
                                 horseId,
                                 horseName,
-                                home,
+
+                                /*
+                                 * Permanent bind location.
+                                 */
+                                homeLocation,
+
+                                /*
+                                 * Last tracked location.
+                                 */
+                                lastKnownLocation,
+
                                 color,
                                 style,
+
                                 maxHealth,
                                 health,
                                 movementSpeed,
                                 jumpStrength,
+
                                 armor,
+
                                 registeredAt
                         );
 
@@ -1125,6 +2070,7 @@ public final class MountManager {
                         horseId,
                         ownerId
                 );
+
 
             } catch (Exception exception) {
 
@@ -1148,7 +2094,7 @@ public final class MountManager {
 
     /*
      * ========================================================
-     * UTILITIES
+     * ATTRIBUTE UTILITY
      * ========================================================
      */
 
@@ -1159,16 +2105,26 @@ public final class MountManager {
     ) {
 
         AttributeInstance instance =
-                horse.getAttribute(attribute);
+                horse.getAttribute(
+                        attribute
+                );
+
 
         if (instance == null) {
 
             return fallback;
         }
 
+
         return instance.getBaseValue();
     }
 
+
+    /*
+     * ========================================================
+     * PARSE COLOR
+     * ========================================================
+     */
 
     private Horse.Color parseColor(
             String value
@@ -1179,9 +2135,12 @@ public final class MountManager {
             return Horse.Color.WHITE;
         }
 
+
         try {
 
-            return Horse.Color.valueOf(value);
+            return Horse.Color.valueOf(
+                    value
+            );
 
         } catch (IllegalArgumentException ignored) {
 
@@ -1189,6 +2148,12 @@ public final class MountManager {
         }
     }
 
+
+    /*
+     * ========================================================
+     * PARSE STYLE
+     * ========================================================
+     */
 
     private Horse.Style parseStyle(
             String value
@@ -1199,9 +2164,12 @@ public final class MountManager {
             return Horse.Style.NONE;
         }
 
+
         try {
 
-            return Horse.Style.valueOf(value);
+            return Horse.Style.valueOf(
+                    value
+            );
 
         } catch (IllegalArgumentException ignored) {
 
@@ -1209,6 +2177,12 @@ public final class MountManager {
         }
     }
 
+
+    /*
+     * ========================================================
+     * HORSE NAME
+     * ========================================================
+     */
 
     private String getHorseName(
             Horse horse
@@ -1220,8 +2194,113 @@ public final class MountManager {
             return horse.getCustomName();
         }
 
+
         return "Equinox Mount";
     }
+
+    /*
+ * ========================================================
+ * FIND REAL HORSE IN LOADED CHUNK
+ * ========================================================
+ *
+ * Searches the actual chunk entity list for the exact
+ * registered horse UUID.
+ *
+ * This is more reliable for unloaded-chunk recovery than
+ * relying only on World#getEntity(UUID).
+ * ========================================================
+ */
+
+private Horse findHorseInChunk(
+        Location location,
+        UUID horseId
+) {
+
+    if (location == null
+            || location.getWorld() == null
+            || horseId == null) {
+
+        return null;
+    }
+
+
+    World world =
+            location.getWorld();
+
+
+    int chunkX =
+            location.getBlockX() >> 4;
+
+
+    int chunkZ =
+            location.getBlockZ() >> 4;
+
+
+    try {
+
+        /*
+         * Force the chunk to load.
+         */
+
+        Chunk chunk =
+                world.getChunkAt(
+                        chunkX,
+                        chunkZ
+                );
+
+
+        /*
+         * Keep the chunk loaded while we search.
+         *
+         * This prevents it from immediately unloading again
+         * while the whistle recovery process is running.
+         */
+
+        chunk.addPluginChunkTicket(
+                plugin
+        );
+
+
+        /*
+         * Search the REAL entities inside the chunk.
+         */
+
+        for (Entity entity :
+                chunk.getEntities()) {
+
+            if (!(entity instanceof Horse horse)) {
+
+                continue;
+            }
+
+
+            if (!horse.isValid()
+                    || horse.isDead()) {
+
+                continue;
+            }
+
+
+            if (horse.getUniqueId()
+                    .equals(horseId)) {
+
+                return horse;
+            }
+        }
+
+    } catch (Exception exception) {
+
+        plugin.getLogger().warning(
+                "Could not load/search mount chunk at "
+                        + chunkX
+                        + ", "
+                        + chunkZ
+        );
+    }
+
+
+    return null;
+}
 
 
     /*

@@ -8,24 +8,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.util.UUID;
 
-
-/**
- * ============================================================
- * EQUINOX MOUNT DATA
- * ============================================================
- *
- * Stores persistent information about a player's registered mount.
- *
- * The home location is permanent and is created when the horse
- * is bound.
- *
- * Horse identity information is also stored so that a replacement
- * horse can be recreated if the original entity disappears.
- *
- * ============================================================
- */
 public final class MountData {
-
 
     /*
      * ========================================================
@@ -42,26 +25,49 @@ public final class MountData {
 
     /*
      * ========================================================
-     * HOME LOCATION
+     * PERMANENT HOME LOCATION
+     *
+     * This is the location where the mount was bound.
+     *
+     * IMPORTANT:
+     * This location NEVER automatically changes.
      * ========================================================
      */
 
     private UUID homeWorldId;
 
     private double homeX;
-
     private double homeY;
-
     private double homeZ;
 
     private float homeYaw;
-
     private float homePitch;
 
 
     /*
      * ========================================================
-     * HORSE APPEARANCE
+     * LAST KNOWN REAL HORSE LOCATION
+     *
+     * This is ONLY used to find the real horse when its chunk
+     * becomes unloaded.
+     *
+     * This does NOT replace the permanent home location.
+     * ========================================================
+     */
+
+    private UUID lastWorldId;
+
+    private double lastX;
+    private double lastY;
+    private double lastZ;
+
+    private float lastYaw;
+    private float lastPitch;
+
+
+    /*
+     * ========================================================
+     * APPEARANCE
      * ========================================================
      */
 
@@ -72,25 +78,20 @@ public final class MountData {
 
     /*
      * ========================================================
-     * HORSE ATTRIBUTES
+     * ATTRIBUTES
      * ========================================================
      */
 
     private double maxHealth;
-
     private double health;
-
     private double movementSpeed;
-
     private double jumpStrength;
 
 
     /*
      * ========================================================
-     * HORSE ARMOR
+     * ARMOR
      * ========================================================
-     *
-     * ItemStack keeps Equinox PDC enchantments.
      */
 
     private ItemStack armor;
@@ -107,7 +108,7 @@ public final class MountData {
 
     /*
      * ========================================================
-     * NEW MOUNT CONSTRUCTOR
+     * CONSTRUCTORS
      * ========================================================
      */
 
@@ -130,6 +131,7 @@ public final class MountData {
                 horseId,
                 horseName,
                 homeLocation,
+                homeLocation,
                 color,
                 style,
                 maxHealth,
@@ -142,17 +144,12 @@ public final class MountData {
     }
 
 
-    /*
-     * ========================================================
-     * LOAD CONSTRUCTOR
-     * ========================================================
-     */
-
     public MountData(
             UUID ownerId,
             UUID horseId,
             String horseName,
             Location homeLocation,
+            Location lastKnownLocation,
             Horse.Color color,
             Horse.Style style,
             double maxHealth,
@@ -164,7 +161,6 @@ public final class MountData {
     ) {
 
         this.ownerId = ownerId;
-
         this.horseId = horseId;
 
         this.horseName =
@@ -183,11 +179,8 @@ public final class MountData {
                         : Horse.Style.NONE;
 
         this.maxHealth = maxHealth;
-
         this.health = health;
-
         this.movementSpeed = movementSpeed;
-
         this.jumpStrength = jumpStrength;
 
         this.armor =
@@ -198,44 +191,37 @@ public final class MountData {
         this.registeredAt = registeredAt;
 
         setHomeLocation(homeLocation);
+        setLastKnownLocation(lastKnownLocation);
     }
 
 
     /*
      * ========================================================
-     * BASIC GETTERS
+     * BASIC
      * ========================================================
      */
 
     public UUID getOwnerId() {
-
         return ownerId;
     }
 
 
     public UUID getHorseId() {
-
         return horseId;
     }
 
 
-    public void setHorseId(
-            UUID horseId
-    ) {
-
+    public void setHorseId(UUID horseId) {
         this.horseId = horseId;
     }
 
 
     public String getHorseName() {
-
         return horseName;
     }
 
 
-    public void setHorseName(
-            String horseName
-    ) {
+    public void setHorseName(String horseName) {
 
         this.horseName =
                 horseName != null
@@ -245,8 +231,170 @@ public final class MountData {
 
 
     public long getRegisteredAt() {
-
         return registeredAt;
+    }
+
+
+    /*
+     * ========================================================
+     * HOME
+     * ========================================================
+     */
+
+    public void setHomeLocation(Location location) {
+
+        if (location == null
+                || location.getWorld() == null) {
+
+            return;
+        }
+
+        homeWorldId = location.getWorld().getUID();
+
+        homeX = location.getX();
+        homeY = location.getY();
+        homeZ = location.getZ();
+
+        homeYaw = location.getYaw();
+        homePitch = location.getPitch();
+    }
+
+
+    public Location getHomeLocation() {
+
+        if (homeWorldId == null) {
+            return null;
+        }
+
+        World world =
+                Bukkit.getWorld(homeWorldId);
+
+        if (world == null) {
+            return null;
+        }
+
+        return new Location(
+                world,
+                homeX,
+                homeY,
+                homeZ,
+                homeYaw,
+                homePitch
+        );
+    }
+
+
+    public UUID getHomeWorldId() {
+        return homeWorldId;
+    }
+
+
+    public double getHomeX() {
+        return homeX;
+    }
+
+
+    public double getHomeY() {
+        return homeY;
+    }
+
+
+    public double getHomeZ() {
+        return homeZ;
+    }
+
+
+    public float getHomeYaw() {
+        return homeYaw;
+    }
+
+
+    public float getHomePitch() {
+        return homePitch;
+    }
+
+
+    /*
+     * ========================================================
+     * LAST KNOWN LOCATION
+     * ========================================================
+     */
+
+    public void setLastKnownLocation(Location location) {
+
+        if (location == null
+                || location.getWorld() == null) {
+
+            return;
+        }
+
+        lastWorldId = location.getWorld().getUID();
+
+        lastX = location.getX();
+        lastY = location.getY();
+        lastZ = location.getZ();
+
+        lastYaw = location.getYaw();
+        lastPitch = location.getPitch();
+    }
+
+
+    public Location getLastKnownLocation() {
+
+        if (lastWorldId == null) {
+
+            /*
+             * Old mounts fallback.
+             */
+
+            return getHomeLocation();
+        }
+
+        World world =
+                Bukkit.getWorld(lastWorldId);
+
+        if (world == null) {
+            return getHomeLocation();
+        }
+
+        return new Location(
+                world,
+                lastX,
+                lastY,
+                lastZ,
+                lastYaw,
+                lastPitch
+        );
+    }
+
+
+    public UUID getLastWorldId() {
+        return lastWorldId;
+    }
+
+
+    public double getLastX() {
+        return lastX;
+    }
+
+
+    public double getLastY() {
+        return lastY;
+    }
+
+
+    public double getLastZ() {
+        return lastZ;
+    }
+
+
+    public float getLastYaw() {
+        return lastYaw;
+    }
+
+
+    public float getLastPitch() {
+        return lastPitch;
     }
 
 
@@ -257,29 +405,21 @@ public final class MountData {
      */
 
     public Horse.Color getColor() {
-
         return color;
     }
 
 
-    public void setColor(
-            Horse.Color color
-    ) {
-
+    public void setColor(Horse.Color color) {
         this.color = color;
     }
 
 
     public Horse.Style getStyle() {
-
         return style;
     }
 
 
-    public void setStyle(
-            Horse.Style style
-    ) {
-
+    public void setStyle(Horse.Style style) {
         this.style = style;
     }
 
@@ -291,57 +431,41 @@ public final class MountData {
      */
 
     public double getMaxHealth() {
-
         return maxHealth;
     }
 
 
-    public void setMaxHealth(
-            double maxHealth
-    ) {
-
+    public void setMaxHealth(double maxHealth) {
         this.maxHealth = maxHealth;
     }
 
 
     public double getHealth() {
-
         return health;
     }
 
 
-    public void setHealth(
-            double health
-    ) {
-
+    public void setHealth(double health) {
         this.health = health;
     }
 
 
     public double getMovementSpeed() {
-
         return movementSpeed;
     }
 
 
-    public void setMovementSpeed(
-            double movementSpeed
-    ) {
-
+    public void setMovementSpeed(double movementSpeed) {
         this.movementSpeed = movementSpeed;
     }
 
 
     public double getJumpStrength() {
-
         return jumpStrength;
     }
 
 
-    public void setJumpStrength(
-            double jumpStrength
-    ) {
-
+    public void setJumpStrength(double jumpStrength) {
         this.jumpStrength = jumpStrength;
     }
 
@@ -360,9 +484,7 @@ public final class MountData {
     }
 
 
-    public void setArmor(
-            ItemStack armor
-    ) {
+    public void setArmor(ItemStack armor) {
 
         this.armor =
                 armor != null
@@ -373,155 +495,41 @@ public final class MountData {
 
     /*
      * ========================================================
-     * HOME LOCATION
-     * ========================================================
-     */
-
-    public UUID getHomeWorldId() {
-
-        return homeWorldId;
-    }
-
-
-    public double getHomeX() {
-
-        return homeX;
-    }
-
-
-    public double getHomeY() {
-
-        return homeY;
-    }
-
-
-    public double getHomeZ() {
-
-        return homeZ;
-    }
-
-
-    public float getHomeYaw() {
-
-        return homeYaw;
-    }
-
-
-    public float getHomePitch() {
-
-        return homePitch;
-    }
-
-
-    public void setHomeLocation(
-            Location location
-    ) {
-
-        if (location == null
-                || location.getWorld() == null) {
-
-            return;
-        }
-
-        this.homeWorldId =
-                location.getWorld().getUID();
-
-        this.homeX =
-                location.getX();
-
-        this.homeY =
-                location.getY();
-
-        this.homeZ =
-                location.getZ();
-
-        this.homeYaw =
-                location.getYaw();
-
-        this.homePitch =
-                location.getPitch();
-    }
-
-
-    public Location getHomeLocation() {
-
-        if (homeWorldId == null) {
-
-            return null;
-        }
-
-        World world =
-                Bukkit.getWorld(homeWorldId);
-
-        if (world == null) {
-
-            return null;
-        }
-
-        return new Location(
-                world,
-                homeX,
-                homeY,
-                homeZ,
-                homeYaw,
-                homePitch
-        );
-    }
-
-
-    /*
-     * ========================================================
-     * COMPATIBILITY METHODS
+     * OLD COMPATIBILITY
      * ========================================================
      */
 
     public UUID getWorldId() {
-
         return getHomeWorldId();
     }
 
 
     public double getX() {
-
         return getHomeX();
     }
 
 
     public double getY() {
-
         return getHomeY();
     }
 
 
     public double getZ() {
-
         return getHomeZ();
     }
 
 
     public float getYaw() {
-
         return getHomeYaw();
     }
 
 
     public float getPitch() {
-
         return getHomePitch();
     }
 
 
     public Location getStoredLocation() {
-
         return getHomeLocation();
-    }
-
-
-    @Deprecated
-    public void updateLocation(
-            Location location
-    ) {
-
-        setHomeLocation(location);
     }
 }
