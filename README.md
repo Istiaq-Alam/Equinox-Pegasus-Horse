@@ -1,3 +1,5 @@
+<img width="1408" height="768" alt="Banner" src="https://i.ibb.co.com/4Rr0J82S/Banner.jpg" />
+
 # 🐎✨ Equinox
 
 ## Legendary Mount Plugin for Paper Server
