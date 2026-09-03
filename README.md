@@ -1,4 +1,4 @@
-<img width="1408" height="768" alt="Banner" src="https://github.com/user-attachments/assets/fffc3715-12a5-4d95-ac0c-d84c01d97919" />
+<img width="1408" height="768" alt="Banner" src="https://i.ibb.co.com/4Rr0J82S/Banner.jpg" />
 
 # 🐎✨ Equinox
 
