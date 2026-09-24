@@ -1,0 +1,10 @@
+# Equinox - Legendary Mount System
+# Minecraft 26.1.2 datapack
+# Paper 26.1.2 compatible
+
+name = "Equinox"
+version = "1.0.1"
+description = "Legendary enchanted horse armor and magical mounts. Converts the Java plugin into a vanilla datapack."
+main-category = "other"
+compatible-version = "26.1.2"
+ide = { optional = false, order = "first" }
