@@ -1,33 +1,43 @@
 package com.istiak.equinox.mount;
 
-import net.minecraft.core.HolderLookup;
+import com.istiak.equinox.EquinoxMod;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.animal.equine.Horse;
-import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.LevelResource;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Port of MountManager storage. One SavedData (equinox_mounts.dat) in the
- * overworld data folder holds every registered mount.
+ * Port of MountManager storage. Persisted as {@code data/equinox_mounts.dat}
+ * inside the world folder.
  *
  * Design invariants carried over from the plugin:
  *  - HOME is the permanent bind location and is NEVER changed automatically.
  *  - LAST KNOWN is the tracked real-horse position used to reload its chunk.
  *  - The system never creates a replacement or duplicate horse.
  */
-public final class MountSavedData extends SavedData {
+public final class MountSavedData {
 
-    private static final String DATA_NAME = "equinox_mounts";
+    private static final String FILE_NAME = "equinox_mounts.dat";
+
+    /** One store per running server. */
+    private static final Map<MinecraftServer, MountSavedData> INSTANCES = new HashMap<>();
+
+    private final MinecraftServer server;
 
     /** Player UUID -> MountData */
     private final Map<UUID, MountData> playerMounts = new HashMap<>();
@@ -35,38 +45,80 @@ public final class MountSavedData extends SavedData {
     /** Horse UUID -> Player UUID */
     private final Map<UUID, UUID> horseOwners = new HashMap<>();
 
+    private boolean dirty = false;
+
+    private MountSavedData(MinecraftServer server) {
+        this.server = server;
+        loadFromDisk();
+    }
+
     public static MountSavedData get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(MountSavedData::new, MountSavedData::load),
-                DATA_NAME
-        );
+        return INSTANCES.computeIfAbsent(server, MountSavedData::new);
     }
 
-    public static MountSavedData load(CompoundTag tag, HolderLookup.Provider registries) {
-        MountSavedData data = new MountSavedData();
-        ListTag list = tag.getList("Mounts", Tag.TAG_COMPOUND);
-        for (int i = 0; i < list.size(); i++) {
-            MountData mount = MountData.load(list.getCompound(i));
-            data.playerMounts.put(mount.getOwnerId(), mount);
-            data.horseOwners.put(mount.getHorseId(), mount.getOwnerId());
-        }
-        return data;
+    private Path file() {
+        return server.getWorldPath(LevelResource.DATA).resolve(FILE_NAME);
     }
 
-    @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        ListTag list = new ListTag();
-        for (MountData mount : playerMounts.values()) {
-            list.add(mount.save());
+    private void loadFromDisk() {
+        Path path = file();
+        if (!Files.exists(path)) {
+            EquinoxMod.log("Loaded 0 Equinox mount(s).");
+            return;
         }
-        tag.put("Mounts", list);
-        return tag;
+        try {
+            CompoundTag root = NbtIo.read(path);
+            ListTag list = root.getListOrEmpty("Mounts");
+            for (int i = 0; i < list.size(); i++) {
+                try {
+                    MountData mount = MountData.load(list.getCompoundOrEmpty(i));
+                    playerMounts.put(mount.getOwnerId(), mount);
+                    horseOwners.put(mount.getHorseId(), mount.getOwnerId());
+                } catch (Exception e) {
+                    EquinoxMod.log("Could not load mount entry #" + i + ": " + e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            EquinoxMod.log("Could not read " + FILE_NAME + ": " + e.getMessage());
+        }
+        EquinoxMod.log("Loaded " + playerMounts.size() + " Equinox mount(s).");
+    }
+
+    public void markDirty() {
+        dirty = true;
+    }
+
+    /** Called periodically from the tick loop and on server stop. */
+    public void saveIfDirty() {
+        if (dirty) {
+            saveNow();
+        }
+    }
+
+    public void saveNow() {
+        try {
+            Files.createDirectories(file().getParent());
+            CompoundTag root = new CompoundTag();
+            ListTag list = new ListTag();
+            for (MountData mount : playerMounts.values()) {
+                list.add(mount.save());
+            }
+            root.put("Mounts", list);
+            NbtIo.write(root, file());
+            dirty = false;
+        } catch (IOException e) {
+            EquinoxMod.log("Could not save " + FILE_NAME + ": " + e.getMessage());
+        }
     }
 
     // ======================================================================
     // REGISTRY
     // ======================================================================
 
+    /**
+     * Registers the horse. Callers must validate tamed/owner/armor first
+     * (mirrors the plugin's command-side checks + MountManager.registerMount).
+     */
     public boolean register(ServerPlayer player, Horse horse) {
         UUID playerId = player.getUUID();
         UUID horseId = horse.getUUID();
@@ -82,9 +134,11 @@ public final class MountSavedData extends SavedData {
         MountData data = new MountData(playerId, horseId);
         data.setRegisteredAt(registeredAt);
 
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = (ServerLevel) horse.level();
         var pos = horse.position();
+        // HOME = permanent bind location.
         data.setHome(level, pos.x, pos.y, pos.z, horse.getYRot(), horse.getXRot());
+        // LAST KNOWN starts equal to HOME.
         data.setLastKnown(level, pos.x, pos.y, pos.z, horse.getYRot(), horse.getXRot());
 
         if (horse.hasCustomName()) {
@@ -95,7 +149,7 @@ public final class MountSavedData extends SavedData {
 
         playerMounts.put(playerId, data);
         horseOwners.put(horseId, playerId);
-        setDirty();
+        markDirty();
         return true;
     }
 
@@ -103,7 +157,7 @@ public final class MountSavedData extends SavedData {
         UUID ownerId = horseOwners.remove(horseId);
         if (ownerId == null) return false;
         playerMounts.remove(ownerId);
-        setDirty();
+        markDirty();
         return true;
     }
 
@@ -125,7 +179,7 @@ public final class MountSavedData extends SavedData {
     }
 
     // ======================================================================
-    // ENTITY LOOKUP
+    // ENTITY LOOKUP (never spawns or duplicates - only finds the real horse)
     // ======================================================================
 
     public Horse getLoadedHorse(MinecraftServer server, UUID horseId) {
@@ -144,6 +198,11 @@ public final class MountSavedData extends SavedData {
         return data == null ? null : getLoadedHorse(server, data.getHorseId());
     }
 
+    /** True if this horse is a registered Equinox mount wearing Equinox armor. */
+    public static boolean isValidMountArmor(Horse horse) {
+        return EquinoxItemsHolder.isEquinoxArmor(horse.getItemBySlot(EquipmentSlot.BODY));
+    }
+
     // ======================================================================
     // TRACKING
     // ======================================================================
@@ -151,7 +210,7 @@ public final class MountSavedData extends SavedData {
     /**
      * Updates ONLY the last known location. Never touches HOME.
      */
-    public void updateLastKnown(MinecraftServer server, Horse horse) {
+    public void updateLastKnown(Horse horse) {
         UUID ownerId = horseOwners.get(horse.getUUID());
         if (ownerId == null) return;
         MountData data = playerMounts.get(ownerId);
@@ -160,17 +219,27 @@ public final class MountSavedData extends SavedData {
 
         var pos = horse.position();
         data.setLastKnown(level, pos.x, pos.y, pos.z, horse.getYRot(), horse.getXRot());
-        setDirty();
+        markDirty();
     }
 
     public void updateLastKnown(MinecraftServer server, UUID horseId) {
         Horse horse = getLoadedHorse(server, horseId);
         if (horse != null) {
-            updateLastKnown(server, horse);
+            updateLastKnown(horse);
         }
     }
 
     public void saveAll() {
-        setDirty();
+        saveNow();
+    }
+
+    /**
+     * Tiny indirection so the store can reference EquinoxItems without a
+     * package cycle at class-init time.
+     */
+    private static final class EquinoxItemsHolder {
+        static boolean isEquinoxArmor(net.minecraft.world.item.ItemStack stack) {
+            return com.istiak.equinox.items.EquinoxItems.isEquinoxArmor(stack);
+        }
     }
 }

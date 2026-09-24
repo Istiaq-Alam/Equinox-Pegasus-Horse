@@ -1,13 +1,10 @@
 package com.istiak.equinox.flight;
 
-import com.istiak.equinox.EquinoxMod;
 import com.istiak.equinox.items.EquinoxItems;
 import com.istiak.equinox.mount.MountData;
 import com.istiak.equinox.mount.MountSavedData;
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.DustParticleOptions;
-import org.joml.Vector3f;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -15,8 +12,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,9 +44,10 @@ public final class FlightManager {
     private static final double PATH_HALF_WIDTH = 1.25;
     private static final double PATH_BELOW_HORSE = 1.15;
 
-    private static final Vector3f CENTER_COLOR = new Vector3f(80 / 255f, 220 / 255f, 255 / 255f);
-    private static final Vector3f LEFT_COLOR = new Vector3f(185 / 255f, 90 / 255f, 255 / 255f);
-    private static final Vector3f RIGHT_COLOR = new Vector3f(255 / 255f, 90 / 255f, 210 / 255f);
+    // Dust colors (26.x DustParticleOptions takes an ARGB int).
+    private static final int CENTER_COLOR = 0x50DCFF;
+    private static final int LEFT_COLOR = 0xB95AFF;
+    private static final int RIGHT_COLOR = 0xFF5AD2;
 
     /** Horse UUIDs currently flying. */
     private final Set<UUID> flyingMounts = new HashSet<>();
@@ -55,6 +55,9 @@ public final class FlightManager {
     private final Set<UUID> transitionMounts = new HashSet<>();
     /** Player sneak-debounce so holding SHIFT does not retrigger. */
     private final Set<UUID> sneakArmed = new HashSet<>();
+    /** Horse UUID -> tick when the transition flag expires. */
+    private final Map<UUID, Long> pendingTransitions = new HashMap<>();
+    private long tickCounter = 0;
 
     public boolean isFlying(Horse horse) {
         return horse != null && flyingMounts.contains(horse.getUUID());
@@ -65,7 +68,7 @@ public final class FlightManager {
     }
 
     // ======================================================================
-    // SNEAK HANDLING (called from the tick event for each online player)
+    // SNEAK HANDLING (called every tick for each online player)
     // ======================================================================
 
     public void handleSneak(ServerPlayer player, boolean sneaking) {
@@ -74,12 +77,12 @@ public final class FlightManager {
             return;
         }
 
-        MountSavedData mounts = MountSavedData.get(player.server);
+        MountSavedData mounts = MountSavedData.get(player.level().getServer());
         MountData data = mounts.get(player.getUUID());
         if (data == null || !mounts.isOwner(player, horse)) {
             return;
         }
-        if (!EquinoxItems.isEquinoxArmor(horse.getBodyArmorItem())) {
+        if (!EquinoxItems.isEquinoxArmor(horse.getItemBySlot(EquipmentSlot.BODY))) {
             if (sneaking && sneakArmed.contains(player.getUUID())) {
                 actionbar(player, "Your mount needs Equinox Armor to fly.", ChatFormatting.RED);
             }
@@ -88,7 +91,7 @@ public final class FlightManager {
         }
 
         if (sneaking && !sneakArmed.contains(player.getUUID())) {
-            // Sneak start edge.
+            // Sneak start edge = SHIFT press.
             sneakArmed.add(player.getUUID());
             if (isFlying(horse)) {
                 stopFlight(player, horse);
@@ -126,10 +129,9 @@ public final class FlightManager {
         horse.setDeltaMovement(vel.x, 0.55, vel.z);
 
         // Clear the transition flag after 12 ticks.
-        pendingTransitions.put(horse.getUUID(), EquinoxMod.serverTick() + TRANSITION_TICKS);
+        pendingTransitions.put(horse.getUUID(), tickCounter + TRANSITION_TICKS);
 
         actionbar(player, "✦ Your Equinox mount takes flight!", ChatFormatting.LIGHT_PURPLE);
-        player.playNotifySound(SoundEvents.ENDER_DRAGON_FLAP, SoundSource.PLAYERS, 1.0f, 1.25f);
         return true;
     }
 
@@ -149,10 +151,9 @@ public final class FlightManager {
         horse.level().playSound(null, horse.blockPosition(), SoundEvents.ENDER_DRAGON_FLAP,
                 SoundSource.PLAYERS, 0.8f, 0.8f);
 
-        pendingTransitions.put(horse.getUUID(), EquinoxMod.serverTick() + 10);
+        pendingTransitions.put(horse.getUUID(), tickCounter + 10);
 
         actionbar(player, "✦ Your Equinox mount is descending...", ChatFormatting.AQUA);
-        player.playNotifySound(SoundEvents.ENDER_DRAGON_FLAP, SoundSource.PLAYERS, 0.8f, 0.8f);
         return true;
     }
 
@@ -163,18 +164,17 @@ public final class FlightManager {
         horse.fallDistance = 0.0f;
     }
 
-    private final Map<UUID, Long> pendingTransitions = new HashMap<>();
-
     // ======================================================================
     // MAIN TICK
     // ======================================================================
 
     public void tick(MinecraftServer server) {
+        tickCounter++;
+
         // Expire transition flags.
         if (!pendingTransitions.isEmpty()) {
-            long now = EquinoxMod.serverTick();
             pendingTransitions.entrySet().removeIf(e -> {
-                if (e.getValue() <= now) {
+                if (e.getValue() <= tickCounter) {
                     transitionMounts.remove(e.getKey());
                     return true;
                 }
@@ -208,7 +208,7 @@ public final class FlightManager {
 
             MountSavedData mounts = MountSavedData.get(server);
             if (!mounts.isOwner(rider, horse)
-                    || !EquinoxItems.isEquinoxArmor(horse.getBodyArmorItem())) {
+                    || !EquinoxItems.isEquinoxArmor(horse.getItemBySlot(EquipmentSlot.BODY))) {
                 forceStopFlight(horse);
                 continue;
             }
@@ -332,8 +332,8 @@ public final class FlightManager {
                 5, 0.5, 0.15, 0.5, 0.1);
     }
 
-    private static void dust(ServerLevel level, Vec3 pos, Vector3f color, float size, int count) {
-        level.sendParticles(new DustParticleOptions(color, size), pos.x, pos.y, pos.z,
+    private static void dust(ServerLevel level, Vec3 pos, int argb, float size, int count) {
+        level.sendParticles(new DustParticleOptions(argb, size), pos.x, pos.y, pos.z,
                 count, 0.10, 0.03, 0.10, 0.0);
     }
 
@@ -347,7 +347,6 @@ public final class FlightManager {
     }
 
     private static void actionbar(ServerPlayer player, String text, ChatFormatting color) {
-        Component msg = Component.literal(text).withStyle(color);
-        player.displayClientMessage(msg, true);
+        player.sendSystemMessage(Component.literal(text).withStyle(color), true);
     }
 }

@@ -1,6 +1,5 @@
 package com.istiak.equinox.command;
 
-import com.istiak.equinox.EnchantScanner;
 import com.istiak.equinox.EquinoxMessages;
 import com.istiak.equinox.EquinoxMod;
 import com.istiak.equinox.enchant.EnchantmentType;
@@ -16,15 +15,26 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.permissions.Permissions;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
 
 import java.util.List;
 
 /**
- * Port of EquinoxCommand (/equinox tree with aliases /eq via literal registration).
+ * Port of EquinoxCommand (/equinox tree, /eq alias).
+ *
+ * Permission model (26.x has no per-node plugin permissions):
+ *   - admin subcommands (armor/enchant/disenchant/whistle) require the
+ *     COMMANDS_ADMIN permission (op level 2 equivalent).
+ *   - mount bind/info/unbind are available to every player, like the plugin's
+ *     equinox.use default-true permission.
  */
 public final class EquinoxCommand {
 
@@ -37,36 +47,41 @@ public final class EquinoxCommand {
                     List.of("leather", "iron", "golden", "diamond", "netherite"), builder);
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(net.minecraft.commands.Commands.literal("equinox")
-                .then(Commands.literal("help").executes(ctx -> help(ctx.getSource())))
-                .then(Commands.literal("armor")
-                        .requires(src -> src.hasPermission(2))
-                        .then(Commands.literal("give")
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .then(Commands.argument("type", StringArgumentType.word())
+        var root = net.minecraft.commands.Commands.literal("equinox")
+                .then(net.minecraft.commands.Commands.literal("help")
+                        .executes(ctx -> help(ctx.getSource())))
+                .then(net.minecraft.commands.Commands.literal("armor")
+                        .requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                        .then(net.minecraft.commands.Commands.literal("give")
+                                .then(net.minecraft.commands.Commands.argument("player", EntityArgument.player())
+                                        .then(net.minecraft.commands.Commands.argument("type", StringArgumentType.word())
                                                 .suggests(ARMOR_TYPES)
-                                                .executes(ctx -> armorGive(ctx))))))
-                .then(Commands.literal("enchant")
-                        .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("type", StringArgumentType.word())
+                                                .executes(EquinoxCommand::armorGive)))))
+                .then(net.minecraft.commands.Commands.literal("enchant")
+                        .requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                        .then(net.minecraft.commands.Commands.argument("type", StringArgumentType.word())
                                 .suggests(ENCHANTS)
-                                .then(Commands.argument("level", IntegerArgumentType.integer(1))
-                                        .executes(ctx -> enchant(ctx)))))
-                .then(Commands.literal("disenchant")
-                        .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("type", StringArgumentType.word())
+                                .then(net.minecraft.commands.Commands.argument("level", IntegerArgumentType.integer(1))
+                                        .executes(EquinoxCommand::enchant))))
+                .then(net.minecraft.commands.Commands.literal("disenchant")
+                        .requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                        .then(net.minecraft.commands.Commands.argument("type", StringArgumentType.word())
                                 .suggests(ENCHANTS)
-                                .executes(ctx -> disenchant(ctx))))
-                .then(Commands.literal("mount")
-                        .then(Commands.literal("bind").executes(ctx -> mountBind(ctx)))
-                        .then(Commands.literal("info").executes(ctx -> mountInfo(ctx)))
-                        .then(Commands.literal("unbind").executes(ctx -> mountUnbind(ctx))))
-                .then(Commands.literal("whistle")
-                        .requires(src -> src.hasPermission(2))
-                        .then(Commands.literal("give")
-                                .then(Commands.argument("player", EntityArgument.player())
-                                        .executes(ctx -> whistleGive(ctx)))))
-        );
+                                .executes(EquinoxCommand::disenchant)))
+                .then(net.minecraft.commands.Commands.literal("mount")
+                        .then(net.minecraft.commands.Commands.literal("bind")
+                                .executes(ctx -> mountBind(ctx.getSource())))
+                        .then(net.minecraft.commands.Commands.literal("info")
+                                .executes(ctx -> mountInfo(ctx.getSource())))
+                        .then(net.minecraft.commands.Commands.literal("unbind")
+                                .executes(ctx -> mountUnbind(ctx.getSource()))))
+                .then(net.minecraft.commands.Commands.literal("whistle")
+                        .requires(src -> src.permissions().hasPermission(Permissions.COMMANDS_ADMIN))
+                        .then(net.minecraft.commands.Commands.literal("give")
+                                .then(net.minecraft.commands.Commands.argument("player", EntityArgument.player())
+                                        .executes(EquinoxCommand::whistleGive))));
+
+        dispatcher.register(root);
 
         // /eq alias
         dispatcher.register(net.minecraft.commands.Commands.literal("eq")
@@ -95,11 +110,11 @@ public final class EquinoxCommand {
         String type = StringArgumentType.getString(ctx, "type").toLowerCase();
 
         ItemStack base = switch (type) {
-            case "leather" -> new ItemStack(net.minecraft.world.item.Items.LEATHER_HORSE_ARMOR);
-            case "iron" -> new ItemStack(net.minecraft.world.item.Items.IRON_HORSE_ARMOR);
-            case "gold", "golden" -> new ItemStack(net.minecraft.world.item.Items.GOLDEN_HORSE_ARMOR);
-            case "diamond" -> new ItemStack(net.minecraft.world.item.Items.DIAMOND_HORSE_ARMOR);
-            case "netherite" -> new ItemStack(net.minecraft.world.item.Items.NETHERITE_HORSE_ARMOR);
+            case "leather" -> new ItemStack(Items.LEATHER_HORSE_ARMOR);
+            case "iron" -> new ItemStack(Items.IRON_HORSE_ARMOR);
+            case "gold", "golden" -> new ItemStack(Items.GOLDEN_HORSE_ARMOR);
+            case "diamond" -> new ItemStack(Items.DIAMOND_HORSE_ARMOR);
+            case "netherite" -> new ItemStack(Items.NETHERITE_HORSE_ARMOR);
             default -> null;
         };
 
@@ -109,7 +124,7 @@ public final class EquinoxCommand {
         }
 
         target.getInventory().add(EquinoxItems.createArmor(base));
-        send(source, "<green>Equinox Horse Armor given to " + target.getGameProfile().getName() + "!</green>");
+        send(source, "<green>Equinox Horse Armor given to " + target.getName().getString() + "!</green>");
         EquinoxMod.sendPrefix(target, "<gold>You received Equinox Horse Armor!</gold>");
         return 1;
     }
@@ -119,18 +134,14 @@ public final class EquinoxCommand {
     // ======================================================================
 
     private static int enchant(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack source = ctx.getSource();
-        ServerPlayer player;
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
-            source.sendFailure(Component.literal("This command must be used by a player."));
+        ServerPlayer player = ctx.getSource().getPlayer();
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("This command must be used by a player."));
             return 0;
         }
 
-        String typeId = StringArgumentType.getString(ctx, "type");
+        EnchantmentType type = EnchantmentType.fromString(StringArgumentType.getString(ctx, "type"));
         int level = IntegerArgumentType.getInteger(ctx, "level");
-        EnchantmentType type = EnchantmentType.fromString(typeId);
 
         if (type == null) {
             EquinoxMod.sendPrefix(player, "<red>Unknown enchantment.</red>");
@@ -153,12 +164,9 @@ public final class EquinoxCommand {
     }
 
     private static int disenchant(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack source = ctx.getSource();
-        ServerPlayer player;
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
-            source.sendFailure(Component.literal("This command must be used by a player."));
+        ServerPlayer player = ctx.getSource().getPlayer();
+        if (player == null) {
+            ctx.getSource().sendFailure(Component.literal("This command must be used by a player."));
             return 0;
         }
 
@@ -183,20 +191,16 @@ public final class EquinoxCommand {
     // MOUNT BIND / INFO / UNBIND
     // ======================================================================
 
-    private static int mountBind(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack source = ctx.getSource();
-        ServerPlayer player;
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
+    private static int mountBind(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
             source.sendFailure(Component.literal("This command must be used by a player."));
             return 0;
         }
 
-        // Look for a horse within ~6 blocks (plugin used getTargetEntity(6)).
-        Entity picked = player.pick(6.0, 1.0f, false).getType() == net.minecraft.world.phys.HitResult.Type.ENTITY
-                ? ((net.minecraft.world.phys.EntityHitResult) player.pick(6.0, 1.0f, false)).getEntity()
-                : null;
+        // Look for an entity within 6 blocks (plugin used getTargetEntity(6)).
+        HitResult hit = player.pick(6.0, 1.0f, false);
+        Entity picked = hit instanceof EntityHitResult entityHit ? entityHit.getEntity() : null;
 
         if (!(picked instanceof Horse horse)) {
             EquinoxMod.sendPrefix(player, "<red>You must look directly at your horse.</red>");
@@ -209,17 +213,19 @@ public final class EquinoxCommand {
             return 0;
         }
 
-        if (!horse.isOwnedBy(player)) {
+        // Ownership: the tamed horse's owner must be this player.
+        var ownerRef = horse.getOwnerReference();
+        if (ownerRef == null || !player.getUUID().equals(ownerRef.getUUID())) {
             EquinoxMod.sendPrefix(player, "<red>You do not own this horse.</red>");
             return 0;
         }
 
-        if (!EquinoxItems.isEquinoxArmor(horse.getBodyArmorItem())) {
+        if (!EquinoxItems.isEquinoxArmor(horse.getItemBySlot(EquipmentSlot.BODY))) {
             EquinoxMod.sendPrefix(player, "<red>Your horse must wear Equinox Horse Armor.</red>");
             return 0;
         }
 
-        MountSavedData mounts = MountSavedData.get(player.server);
+        MountSavedData mounts = MountSavedData.get(player.level().getServer());
         if (!mounts.register(player, horse)) {
             EquinoxMod.sendPrefix(player, "<red>Could not bind this horse.</red>");
             return 0;
@@ -233,17 +239,14 @@ public final class EquinoxCommand {
         return 1;
     }
 
-    private static int mountInfo(CommandContext<CommandSourceStack> ctx) {
-        ServerPlayer player;
-        CommandSourceStack source = ctx.getSource();
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
+    private static int mountInfo(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
             source.sendFailure(Component.literal("This command must be used by a player."));
             return 0;
         }
 
-        MountSavedData mounts = MountSavedData.get(player.server);
+        MountSavedData mounts = MountSavedData.get(player.level().getServer());
         MountData data = mounts.get(player.getUUID());
         if (data == null) {
             EquinoxMod.sendPrefix(player, "<red>You do not have a registered Equinox mount.</red>");
@@ -257,17 +260,14 @@ public final class EquinoxCommand {
         return 1;
     }
 
-    private static int mountUnbind(CommandContext<CommandSourceStack> ctx) {
-        ServerPlayer player;
-        CommandSourceStack source = ctx.getSource();
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
+    private static int mountUnbind(CommandSourceStack source) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
             source.sendFailure(Component.literal("This command must be used by a player."));
             return 0;
         }
 
-        MountSavedData mounts = MountSavedData.get(player.server);
+        MountSavedData mounts = MountSavedData.get(player.level().getServer());
         MountData data = mounts.get(player.getUUID());
         if (data == null) {
             EquinoxMod.sendPrefix(player, "<red>You do not have a registered Equinox mount.</red>");
@@ -291,7 +291,7 @@ public final class EquinoxCommand {
         ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
 
         target.getInventory().add(EquinoxItems.createWhistle());
-        send(source, "<green>Equinox Whistle given to " + target.getGameProfile().getName() + "!</green>");
+        send(source, "<green>Equinox Whistle given to " + target.getName().getString() + "!</green>");
         EquinoxMod.sendPrefix(target, "<light_purple>✦ You received an Equinox Whistle!</light_purple>");
         return 1;
     }
@@ -302,5 +302,8 @@ public final class EquinoxCommand {
 
     private static void send(CommandSourceStack source, String mini) {
         source.sendSuccess(() -> EquinoxMessages.parse(mini), false);
+    }
+
+    private EquinoxCommand() {
     }
 }

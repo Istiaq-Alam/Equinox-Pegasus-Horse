@@ -1,6 +1,5 @@
 package com.istiak.equinox.items;
 
-import com.istiak.equinox.EquinoxMod;
 import com.istiak.equinox.enchant.EnchantmentType;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
@@ -8,6 +7,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.item.component.ItemLore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,13 +33,6 @@ public final class EquinoxItems {
                 Component.literal("✦ Equinox Horse Armor ✦")
                         .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
 
-        List<Component> lore = new ArrayList<>();
-        lore.add(Component.literal("━━━━━━━━━━━━━━━━━━").withStyle(ChatFormatting.DARK_GRAY));
-        lore.add(Component.literal("No Equinox enchantments").withStyle(ChatFormatting.GRAY));
-        lore.add(Component.literal("━━━━━━━━━━━━━━━━━━").withStyle(ChatFormatting.DARK_GRAY));
-        lore.add(Component.literal("✦ Legendary Mount Equipment").withStyle(ChatFormatting.GOLD));
-        item.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lore));
-
         updateLore(item);
         return item;
     }
@@ -56,25 +50,25 @@ public final class EquinoxItems {
         lore.add(Component.literal("Equinox Mount.").withStyle(ChatFormatting.LIGHT_PURPLE));
         lore.add(Component.empty());
         lore.add(Component.literal("✦ Bound to Equinox").withStyle(ChatFormatting.DARK_PURPLE));
-        whistle.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lore));
+        whistle.set(DataComponents.LORE, new ItemLore(lore));
 
         CompoundTag data = new CompoundTag();
         data.putBoolean("equinox_whistle", true);
-        whistle.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        whistle.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
         return whistle;
     }
 
     public static boolean isWhistle(ItemStack item) {
         if (item == null || !item.is(Items.GOAT_HORN)) return false;
         CompoundTag data = customData(item);
-        return data.contains("equinox_whistle") && data.getBoolean("equinox_whistle");
+        return data.getBooleanOr("equinox_whistle", false);
     }
 
     public static boolean isEquinoxArmor(ItemStack item) {
         if (item == null || item.isEmpty()) return false;
         if (!isHorseArmor(item)) return false;
         CompoundTag data = customData(item);
-        return data.contains("equinox_armor") && data.getBoolean("equinox_armor");
+        return data.getBooleanOr("equinox_armor", false);
     }
 
     public static boolean isHorseArmor(ItemStack item) {
@@ -89,9 +83,7 @@ public final class EquinoxItems {
 
     public static int getLevel(ItemStack item, EnchantmentType type) {
         if (!isEquinoxArmor(item)) return 0;
-        CompoundTag data = customData(item);
-        if (!data.contains(type.getId())) return 0;
-        return data.getInt(type.getId());
+        return customData(item).getIntOr(type.getId(), 0);
     }
 
     public static boolean addEnchantment(ItemStack item, EnchantmentType type, int level) {
@@ -101,7 +93,7 @@ public final class EquinoxItems {
         CompoundTag data = customData(item);
         data.putBoolean("equinox_armor", true);
         data.putInt(type.getId(), level);
-        item.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        item.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
         updateLore(item);
         return true;
     }
@@ -110,7 +102,7 @@ public final class EquinoxItems {
         if (!isEquinoxArmor(item)) return false;
         CompoundTag data = customData(item);
         data.remove(type.getId());
-        item.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        item.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
         updateLore(item);
         return true;
     }
@@ -136,7 +128,7 @@ public final class EquinoxItems {
 
         lore.add(Component.literal("━━━━━━━━━━━━━━━━━━").withStyle(ChatFormatting.DARK_GRAY));
         lore.add(Component.literal("✦ Legendary Mount Equipment").withStyle(ChatFormatting.GOLD));
-        item.set(DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(lore));
+        item.set(DataComponents.LORE, new ItemLore(lore));
     }
 
     private static String toRoman(int number) {
@@ -146,7 +138,7 @@ public final class EquinoxItems {
     }
 
     public static CompoundTag customData(ItemStack item) {
-        net.minecraft.world.item.component.CustomData cd = item.get(DataComponents.CUSTOM_DATA);
+        CustomData cd = item.get(DataComponents.CUSTOM_DATA);
         return cd == null ? new CompoundTag() : cd.copyTag();
     }
 }

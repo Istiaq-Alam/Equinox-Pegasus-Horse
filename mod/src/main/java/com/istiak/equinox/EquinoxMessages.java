@@ -7,8 +7,8 @@ import net.minecraft.network.chat.MutableComponent;
 /**
  * MiniMessage-like parser used by the plugin, reimplemented for vanilla
  * text components. Supports the subset of tags this mod uses:
- * gold, bold, gray, dark_gray, green, red, aqua, yellow, white,
- * light_purple, dark_purple and the closing tags.
+ * gold, gray, dark_gray, green, red, aqua, yellow, white, light_purple,
+ * dark_purple, bold and their closing tags.
  */
 public final class EquinoxMessages {
 
@@ -63,8 +63,12 @@ public final class EquinoxMessages {
 
     private static MutableComponent lit(String text, ChatFormatting color, boolean bold) {
         MutableComponent c = Component.literal(text);
-        if (color != null) c = c.withStyle(color);
-        if (bold) c = c.withStyle(ChatFormatting.BOLD);
+        if (color != null) {
+            c = c.withStyle(color);
+        }
+        if (bold) {
+            c = c.withStyle(ChatFormatting.BOLD);
+        }
         return c;
     }
 

@@ -2,16 +2,18 @@ package com.istiak.equinox;
 
 import com.istiak.equinox.enchant.EnchantmentType;
 import com.istiak.equinox.items.EquinoxItems;
-import net.minecraft.core.Holder;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.List;
 
 /**
  * Port of HorseArmorListener: every 10 ticks, re-applies the enchantment
@@ -22,9 +24,12 @@ public final class EnchantScanner {
 
     private static final int SCAN_INTERVAL = 10;
 
-    private final ResourceLocation swiftId = EquinoxMod.id("swift");
-    private final ResourceLocation leapId = EquinoxMod.id("titan_leap");
-    private final ResourceLocation vitalityId = EquinoxMod.id("vitality");
+    private final Identifier swiftId = EquinoxMod.id("swift");
+    private final Identifier leapId = EquinoxMod.id("titan_leap");
+    private final Identifier vitalityId = EquinoxMod.id("vitality");
+
+    public EnchantScanner() {
+    }
 
     public void tick(MinecraftServer server) {
         if (EquinoxMod.serverTick() % SCAN_INTERVAL != 0L) {
@@ -41,7 +46,7 @@ public final class EnchantScanner {
     }
 
     private void updateHorse(Horse horse) {
-        ItemStack armor = horse.getBodyArmorItem();
+        ItemStack armor = horse.getItemBySlot(EquipmentSlot.BODY);
 
         // Always remove old modifiers first so enchantment changes apply
         // immediately and never stack.
@@ -102,7 +107,7 @@ public final class EnchantScanner {
         remove(horse.getAttribute(Attributes.MAX_HEALTH), vitalityId);
     }
 
-    private void remove(AttributeInstance attribute, ResourceLocation id) {
+    private void remove(AttributeInstance attribute, Identifier id) {
         if (attribute != null) {
             attribute.removeModifier(id);
         }

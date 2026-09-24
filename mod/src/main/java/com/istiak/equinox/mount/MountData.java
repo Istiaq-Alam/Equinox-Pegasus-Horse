@@ -1,8 +1,15 @@
 package com.istiak.equinox.mount;
 
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
+
+import java.util.UUID;
 
 /**
  * Port of MountData - all persistent fields of one registered mount.
@@ -59,15 +66,17 @@ public final class MountData {
     }
 
     public static String dimKey(ServerLevel level) {
-        return level.dimension().location().toString();
+        return level.dimension().identifier().toString();
     }
 
     /** Resolves a "namespace:path" dimension string back to a ServerLevel. */
-    public static ServerLevel resolveDim(net.minecraft.server.MinecraftServer server, String dim) {
-        var key = net.minecraft.resources.ResourceKey.create(
-                net.minecraft.core.registries.Registries.DIMENSION,
-                net.minecraft.resources.ResourceLocation.parse(dim));
-        return server.getLevel(key);
+    public static ServerLevel resolveDim(MinecraftServer server, String dim) {
+        try {
+            ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, Identifier.parse(dim));
+            return server.getLevel(key);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public void setHome(ServerLevel level, double x, double y, double z, float yaw, float pitch) {
@@ -137,13 +146,13 @@ public final class MountData {
     }
 
     // ======================================================================
-    // NBT
+    // NBT (26.x: no CompoundTag UUID helpers - store UUIDs as int arrays)
     // ======================================================================
 
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
-        tag.put("Owner", UUIDUtil.UUIDToNBT(ownerId));
-        tag.put("Horse", UUIDUtil.UUIDToNBT(horseId));
+        tag.putIntArray("Owner", UUIDUtil.uuidToIntArray(ownerId));
+        tag.putIntArray("Horse", UUIDUtil.uuidToIntArray(horseId));
         tag.putString("HorseName", horseName);
         tag.putLong("RegisteredAt", registeredAt);
 
@@ -164,25 +173,28 @@ public final class MountData {
     }
 
     public static MountData load(CompoundTag tag) {
-        UUID owner = UUIDUtil.NBTToUUID(tag.getCompound("Owner"));
-        UUID horse = UUIDUtil.NBTToUUID(tag.getCompound("Horse"));
-        MountData data = new MountData(owner, horse);
-        data.horseName = tag.contains("HorseName") ? tag.getString("HorseName") : "Equinox Mount";
-        data.registeredAt = tag.contains("RegisteredAt") ? tag.getLong("RegisteredAt") : System.currentTimeMillis();
+        int[] ownerArr = tag.getIntArray("Owner").orElse(null);
+        int[] horseArr = tag.getIntArray("Horse").orElse(null);
+        if (ownerArr == null || horseArr == null) {
+            throw new IllegalArgumentException("Corrupt mount entry");
+        }
+        MountData data = new MountData(UUIDUtil.uuidFromIntArray(ownerArr), UUIDUtil.uuidFromIntArray(horseArr));
+        data.horseName = tag.getStringOr("HorseName", "Equinox Mount");
+        data.registeredAt = tag.getLongOr("RegisteredAt", System.currentTimeMillis());
 
-        data.homeDim = tag.contains("HomeDim") ? tag.getString("HomeDim") : "minecraft:overworld";
-        data.homeX = tag.getDouble("HomeX");
-        data.homeY = tag.getDouble("HomeY");
-        data.homeZ = tag.getDouble("HomeZ");
-        data.homeYaw = tag.getFloat("HomeYaw");
-        data.homePitch = tag.getFloat("HomePitch");
+        data.homeDim = tag.getStringOr("HomeDim", "minecraft:overworld");
+        data.homeX = tag.getDoubleOr("HomeX", 0.0);
+        data.homeY = tag.getDoubleOr("HomeY", 0.0);
+        data.homeZ = tag.getDoubleOr("HomeZ", 0.0);
+        data.homeYaw = tag.getFloatOr("HomeYaw", 0.0f);
+        data.homePitch = tag.getFloatOr("HomePitch", 0.0f);
 
-        data.lastDim = tag.contains("LastDim") ? tag.getString("LastDim") : data.homeDim;
-        data.lastX = tag.getDouble("LastX");
-        data.lastY = tag.getDouble("LastY");
-        data.lastZ = tag.getDouble("LastZ");
-        data.lastYaw = tag.getFloat("LastYaw");
-        data.lastPitch = tag.getFloat("LastPitch");
+        data.lastDim = tag.getStringOr("LastDim", data.homeDim);
+        data.lastX = tag.getDoubleOr("LastX", data.homeX);
+        data.lastY = tag.getDoubleOr("LastY", data.homeY);
+        data.lastZ = tag.getDoubleOr("LastZ", data.homeZ);
+        data.lastYaw = tag.getFloatOr("LastYaw", data.homeYaw);
+        data.lastPitch = tag.getFloatOr("LastPitch", data.homePitch);
         return data;
     }
 }

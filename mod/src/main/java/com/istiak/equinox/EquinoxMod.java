@@ -1,34 +1,40 @@
 package com.istiak.equinox;
 
+import com.istiak.equinox.command.EquinoxCommand;
+import com.istiak.equinox.enchant.EnchantmentType;
+import com.istiak.equinox.flight.FlightManager;
+import com.istiak.equinox.items.EquinoxItems;
 import com.istiak.equinox.mount.MountSavedData;
-import com.mojang.brigadier.CommandDispatcher;
+import com.istiak.equinox.whistle.WhistleHandler;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.item.ItemStack;
 
 public final class EquinoxMod implements ModInitializer {
 
     public static final String MOD_ID = "equinox";
-    public static final String MOD_NAME = "Equinox";
 
     private static FlightManager flightManager;
     private static WhistleHandler whistleHandler;
     private static EnchantScanner enchantScanner;
+    private static long tickCounter = 0;
 
-    private static long serverTickCounter = 0;
-
+    /** Global server tick counter, read by the enchant scanner. */
     public static long serverTick() {
-        return serverTickCounter;
+        return tickCounter;
     }
 
     @Override
@@ -49,16 +55,16 @@ public final class EquinoxMod implements ModInitializer {
         // ------------------------------------------------------------------
         UseItemCallback.EVENT.register((player, world, hand) -> {
             if (hand != InteractionHand.MAIN_HAND) {
-                return InteractionResultHolder.pass(player.getItemInHand(hand));
+                return InteractionResult.PASS;
             }
             ItemStack stack = player.getItemInHand(hand);
             if (player instanceof ServerPlayer serverPlayer
                     && world instanceof ServerLevel
                     && EquinoxItems.isWhistle(stack)) {
                 whistleHandler.onWhistleUse(serverPlayer);
-                return InteractionResultHolder.success(stack);
+                return InteractionResult.SUCCESS_SERVER;
             }
-            return InteractionResultHolder.pass(stack);
+            return InteractionResult.PASS;
         });
 
         // ------------------------------------------------------------------
@@ -73,7 +79,7 @@ public final class EquinoxMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             MountSavedData.get(server).saveAll();
             whistleHandler.shutdown();
-            EquinoxMod.log("Equinox has been disabled.");
+            log("Equinox has been disabled.");
         });
 
         log("=================================");
@@ -85,28 +91,31 @@ public final class EquinoxMod implements ModInitializer {
     }
 
     private void onServerTick(MinecraftServer server) {
-        serverTickCounter++;
+        tickCounter++;
 
         whistleHandler.tick(server);
         flightManager.tick(server);
         enchantScanner.tick(server);
 
-        // Port of FlightListener sneak handling (SHIFT = takeoff/land) and
-        // HorseMovement/MountLocation location tracking.
+        // Port of FlightListener.onToggleSneak (SHIFT = takeoff / land).
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             flightManager.handleSneak(player, player.isShiftKeyDown());
         }
 
-        // Every 5 seconds, refresh last-known for loaded registered mounts
-        // (parity with MountLocationListener + periodic save).
-        if (serverTickCounter % 100L == 0L) {
+        // Port of MountLocationListener + periodic save: every 5 seconds
+        // refresh last-known for loaded registered mounts.
+        if (tickCounter % 100L == 0L) {
             MountSavedData mounts = MountSavedData.get(server);
-            for (var player : server.getPlayerList().getPlayers()) {
-                var horse = mounts.getLoadedMount(server, player);
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                Horse horse = mounts.getLoadedMount(server, player);
                 if (horse != null) {
-                    mounts.updateLastKnown(server, horse);
+                    mounts.updateLastKnown(horse);
                 }
             }
+        }
+        // Flush mount data every 30 seconds.
+        if (tickCounter % 600L == 0L) {
+            MountSavedData.get(server).saveIfDirty();
         }
     }
 
@@ -122,8 +131,8 @@ public final class EquinoxMod implements ModInitializer {
         return enchantScanner;
     }
 
-    public static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MOD_ID, path);
+    public static Identifier id(String path) {
+        return Identifier.fromNamespaceAndPath(MOD_ID, path);
     }
 
     public static void log(String message) {
@@ -132,9 +141,12 @@ public final class EquinoxMod implements ModInitializer {
 
     /** Sends a prefixed chat message (port of MessageUtils.parse). */
     public static void sendPrefix(ServerPlayer player, String miniMessageLike) {
-        player.displayClientMessage(
+        player.sendSystemMessage(
                 EquinoxMessages.parse("<gold><bold>Equinox</bold></gold> <dark_gray>»</dark_gray> "
                         + miniMessageLike),
                 false);
+    }
+
+    private EquinoxMod() {
     }
 }

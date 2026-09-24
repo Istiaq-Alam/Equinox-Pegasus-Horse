@@ -6,6 +6,7 @@ import com.istiak.equinox.mount.MountSavedData;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -13,6 +14,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.animal.equine.Horse;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.PathComputationType;
@@ -72,7 +75,7 @@ public final class WhistleHandler {
     // ======================================================================
 
     private void handleWhistle(ServerPlayer player) {
-        MinecraftServer server = player.server;
+        MinecraftServer server = player.level().getServer();
         MountSavedData mounts = MountSavedData.get(server);
         MountData data = mounts.get(player.getUUID());
 
@@ -88,10 +91,10 @@ public final class WhistleHandler {
             return;
         }
 
-        handleLoadedHorse(player, horse, data, mounts);
+        handleLoadedHorse(player, horse, data);
     }
 
-    private void handleLoadedHorse(ServerPlayer player, Horse horse, MountData data, MountSavedData mounts) {
+    private void handleLoadedHorse(ServerPlayer player, Horse horse, MountData data) {
         if (horse.isLeashed()) {
             actionbar(player, "Your Equinox mount is leashed.", ChatFormatting.YELLOW);
             return;
@@ -163,7 +166,7 @@ public final class WhistleHandler {
             }
 
             if (horse != null && horse.isAlive()) {
-                handleLoadedHorse(player, horse, data, mounts);
+                handleLoadedHorse(player, horse, data);
                 return false;
             }
 
@@ -208,12 +211,18 @@ public final class WhistleHandler {
         return searchChunk(level, cx, cz, data.getHorseId());
     }
 
+    /**
+     * Force-loads the chunk (getChunk does this) and searches all loaded
+     * horses whose chunk position matches.
+     */
     private Horse searchChunk(ServerLevel level, int cx, int cz, UUID horseId) {
-        // getChunk force-loads the chunk, loading its entities.
-        for (var entity : level.getChunk(cx, cz).getAllEntities()) {
-            if (entity instanceof Horse horse
-                    && horse.isAlive()
-                    && horse.getUUID().equals(horseId)) {
+        level.getChunk(cx, cz); // force load - loads its entities
+        ChunkPos target = new ChunkPos(cx, cz);
+        List<? extends Horse> horses =
+                level.getEntities(EntityTypeTest.forClass(Horse.class),
+                        h -> h.chunkPosition().equals(target) && h.isAlive());
+        for (Horse horse : horses) {
+            if (horse.getUUID().equals(horseId)) {
                 return horse;
             }
         }
@@ -255,7 +264,7 @@ public final class WhistleHandler {
                 horse.setDeltaMovement(0, horse.getDeltaMovement().y, 0);
                 horse.setJumping(false);
                 actionbar(player, "✦ Your Equinox mount has arrived.", ChatFormatting.GREEN);
-                MountSavedData.get(server).updateLastKnown(server, horse);
+                MountSavedData.get(server).updateLastKnown(horse);
                 return false;
             }
 
@@ -277,7 +286,7 @@ public final class WhistleHandler {
             // Jump detection: solid 1-block obstacle ahead with headroom.
             if (shouldHorseJump(horse, direction)) {
                 horse.setJumping(true);
-                double jumpVelocity = Math.max(0.42, horse.getJumpStrength() * 0.72);
+                double jumpVelocity = Math.max(0.42, horse.getAttributeValue(net.minecraft.world.entity.ai.attributes.Attributes.JUMP_STRENGTH) * 0.72);
                 Vec3 vel = horse.getDeltaMovement();
                 if (vel.y < jumpVelocity) {
                     horse.setDeltaMovement(vel.x, jumpVelocity, vel.z);
@@ -297,7 +306,7 @@ public final class WhistleHandler {
             ticks++;
             if (ticks >= RUN_TIMEOUT_TICKS) {
                 actionbar(player, "Your Equinox mount could not reach you.", ChatFormatting.YELLOW);
-                MountSavedData.get(server).updateLastKnown(server, horse);
+                MountSavedData.get(server).updateLastKnown(horse);
                 return false;
             }
             return true;
@@ -313,13 +322,13 @@ public final class WhistleHandler {
         BlockPos abovePos = headPos.above();
 
         var feetState = level.getBlockState(feetPos);
-        if (feetState.isPathfindable(level, feetPos, PathComputationType.LAND)) {
+        if (feetState.isPathfindable(PathComputationType.LAND)) {
             return false;
         }
-        if (!level.getBlockState(headPos).isPathfindable(level, headPos, PathComputationType.LAND)) {
+        if (!level.getBlockState(headPos).isPathfindable(PathComputationType.LAND)) {
             return false;
         }
-        if (!level.getBlockState(abovePos).isPathfindable(level, abovePos, PathComputationType.LAND)) {
+        if (!level.getBlockState(abovePos).isPathfindable(PathComputationType.LAND)) {
             return false;
         }
 
@@ -336,9 +345,9 @@ public final class WhistleHandler {
         BlockPos landingHead = landingFeet.above();
         BlockPos landingGround = landingFeet.below();
 
-        return level.getBlockState(landingGround).isSolidRender(level, landingGround)
-                && level.getBlockState(landingFeet).isPathfindable(level, landingFeet, PathComputationType.LAND)
-                && level.getBlockState(landingHead).isPathfindable(level, landingHead, PathComputationType.LAND);
+        return level.getBlockState(landingGround).isSolidRender()
+                && level.getBlockState(landingFeet).isPathfindable(PathComputationType.LAND)
+                && level.getBlockState(landingHead).isPathfindable(PathComputationType.LAND);
     }
 
     // ======================================================================
@@ -431,7 +440,7 @@ public final class WhistleHandler {
     private void doTeleport(ServerPlayer player, Horse horse, SafeSpot spot) {
         horse.teleportTo(spot.level(), spot.pos().x, spot.pos().y, spot.pos().z,
                 java.util.Set.of(), horse.getYRot(), horse.getXRot(), false);
-        MountSavedData.get(player.server).updateLastKnown(player.server, horse);
+        MountSavedData.get(player.level().getServer()).updateLastKnown(horse);
 
         spawnTeleportEffect(spot.level(), spot.pos());
         spot.level().playSound(null, BlockPos.containing(spot.pos()),
@@ -448,7 +457,7 @@ public final class WhistleHandler {
     }
 
     private SafeSpot findSafeNearPlayer(ServerPlayer player) {
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = player.level();
 
         for (int attempt = 0; attempt < 20; attempt++) {
             double angle = ThreadLocalRandom.current().nextDouble(Math.PI * 2.0);
@@ -494,9 +503,9 @@ public final class WhistleHandler {
         BlockPos head = feet.above();
         BlockPos ground = feet.below();
 
-        if (!level.getBlockState(ground).isSolidRender(level, ground)) return false;
-        if (!level.getBlockState(feet).isPathfindable(level, feet, PathComputationType.LAND)) return false;
-        if (!level.getBlockState(head).isPathfindable(level, head, PathComputationType.LAND)) return false;
+        if (!level.getBlockState(ground).isSolidRender()) return false;
+        if (!level.getBlockState(feet).isPathfindable(PathComputationType.LAND)) return false;
+        if (!level.getBlockState(head).isPathfindable(PathComputationType.LAND)) return false;
 
         var block = level.getBlockState(ground).getBlock();
         return block != Blocks.LAVA
@@ -510,10 +519,12 @@ public final class WhistleHandler {
     // ======================================================================
 
     private void playWhistleEffect(ServerPlayer player) {
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = player.level();
         Vec3 pos = player.position().add(0, 1, 0);
 
-        level.playSound(null, BlockPos.containing(pos), SoundEvents.GOAT_HORN_PLAY,
+        // Plugin used ITEM_GOAT_HORN_SOUND_0 - first vanilla horn variant.
+        var hornSound = SoundEvents.GOAT_HORN_SOUND_VARIANTS.get(0).value();
+        level.playSound(null, BlockPos.containing(pos), hornSound,
                 SoundSource.PLAYERS, 2.0f, 0.75f);
         level.playSound(null, BlockPos.containing(pos), SoundEvents.BEACON_ACTIVATE,
                 SoundSource.PLAYERS, 0.55f, 1.65f);
@@ -578,7 +589,7 @@ public final class WhistleHandler {
     // ======================================================================
 
     private static void actionbar(ServerPlayer player, String text, ChatFormatting color) {
-        Component msg = Component.literal(text).withStyle(color);
-        player.displayClientMessage(msg, true);
+        // 26.x: the boolean variant renders as overlay (action bar).
+        player.sendSystemMessage(Component.literal(text).withStyle(color), true);
     }
 }
