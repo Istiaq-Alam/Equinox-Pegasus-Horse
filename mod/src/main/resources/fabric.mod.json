@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "equinox",
+  "version": "${version}",
+  "name": "Equinox",
+  "description": "Legendary Mount System - enchanted horse armor, mount binding, whistle summon and Pegasus flight.",
+  "authors": [
+    "Istiak Alam"
+  ],
+  "contact": {
+    "homepage": "https://github.com/Istiaq-Alam/Equinox-Pegasus-Horse"
+  },
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.istiak.equinox.EquinoxMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.1",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
