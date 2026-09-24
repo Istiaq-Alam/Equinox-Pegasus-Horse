@@ -25,6 +25,14 @@ import net.minecraft.world.item.ItemStack;
 
 public final class EquinoxMod implements ModInitializer {
 
+    /**
+     * Fabric Loader instantiates the entrypoint class itself, so a public
+     * no-arg constructor is required (a private one crashes at launch with
+     * "Could not execute entrypoint stage 'main'").
+     */
+    public EquinoxMod() {
+    }
+
     public static final String MOD_ID = "equinox";
 
     private static FlightManager flightManager;
@@ -139,14 +147,13 @@ public final class EquinoxMod implements ModInitializer {
         System.out.println("[Equinox] " + message);
     }
 
-    /** Sends a prefixed chat message (port of MessageUtils.parse). */
+    /**
+     * Sends a prefixed chat message (port of MessageUtils.parse).
+     */
     public static void sendPrefix(ServerPlayer player, String miniMessageLike) {
         player.sendSystemMessage(
                 EquinoxMessages.parse("<gold><bold>Equinox</bold></gold> <dark_gray>»</dark_gray> "
                         + miniMessageLike),
                 false);
-    }
-
-    private EquinoxMod() {
     }
 }

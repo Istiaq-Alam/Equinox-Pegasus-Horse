@@ -29,6 +29,13 @@ public final class EquinoxItems {
 
     public static ItemStack createArmor(ItemStack base) {
         ItemStack item = base.copy();
+
+        // Stamp the Equinox identity flag FIRST - updateLore and every
+        // isEquinoxArmor() check depend on it (plugin parity with the PDC key).
+        CompoundTag data = customData(item);
+        data.putBoolean("equinox_armor", true);
+        item.set(DataComponents.CUSTOM_DATA, CustomData.of(data));
+
         item.set(DataComponents.CUSTOM_NAME,
                 Component.literal("✦ Equinox Horse Armor ✦")
                         .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));

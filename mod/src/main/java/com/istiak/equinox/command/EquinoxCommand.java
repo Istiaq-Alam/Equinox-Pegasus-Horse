@@ -22,8 +22,6 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.HitResult;
 
 import java.util.List;
 
@@ -198,9 +196,29 @@ public final class EquinoxCommand {
             return 0;
         }
 
-        // Look for an entity within 6 blocks (plugin used getTargetEntity(6)).
-        HitResult hit = player.pick(6.0, 1.0f, false);
-        Entity picked = hit instanceof EntityHitResult entityHit ? entityHit.getEntity() : null;
+        // Entity raycast within 6 blocks (port of Bukkit's getTargetEntity(6)).
+        // Entity.pick() only raycasts BLOCKS, so we clip the look ray against
+        // nearby horses' bounding boxes ourselves.
+        net.minecraft.world.phys.Vec3 eye = player.getEyePosition();
+        net.minecraft.world.phys.Vec3 view = player.getViewVector(1.0f);
+        net.minecraft.world.phys.Vec3 end = eye.add(view.scale(6.0));
+        net.minecraft.world.phys.AABB searchBox = player.getBoundingBox()
+                .expandTowards(view.scale(6.0))
+                .inflate(1.0);
+
+        Entity picked = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Entity candidate : player.level().getEntities(player, searchBox,
+                e -> e instanceof Horse && e.isAlive())) {
+            var hit = candidate.getBoundingBox().clip(eye, end);
+            if (hit.isPresent()) {
+                double dist = eye.distanceToSqr(hit.get());
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    picked = candidate;
+                }
+            }
+        }
 
         if (!(picked instanceof Horse horse)) {
             EquinoxMod.sendPrefix(player, "<red>You must look directly at your horse.</red>");
