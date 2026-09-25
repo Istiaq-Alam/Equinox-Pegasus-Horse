@@ -1,5 +1,6 @@
 package com.istiak.equinox.flight;
 
+import com.istiak.equinox.enchant.EnchantmentType;
 import com.istiak.equinox.items.EquinoxItems;
 import com.istiak.equinox.mount.MountData;
 import com.istiak.equinox.mount.MountSavedData;
@@ -37,6 +38,11 @@ public final class FlightManager {
     private static final double MAX_VERTICAL_SPEED = 0.65;
     private static final int TRANSITION_TICKS = 12;
 
+    // Mid-air jump (SPACE while flying): clears obstacles without climbing.
+    private static final double FLIGHT_JUMP_STRENGTH = 0.42;
+    private static final int FLIGHT_JUMP_TICKS = 8;
+    private static final int FLIGHT_JUMP_COOLDOWN_TICKS = 12;
+
     // Bifrost pathway constants.
     private static final double PATH_START_DISTANCE = 1.2;
     private static final double PATH_LENGTH = 9.0;
@@ -57,6 +63,8 @@ public final class FlightManager {
     private final Set<UUID> sneakArmed = new HashSet<>();
     /** Horse UUID -> tick when the transition flag expires. */
     private final Map<UUID, Long> pendingTransitions = new HashMap<>();
+    /** Horse UUID -> tick when the mid-air jump was triggered. */
+    private final Map<UUID, Long> pendingFlightJumps = new HashMap<>();
     private long tickCounter = 0;
 
     public boolean isFlying(Horse horse) {
@@ -144,6 +152,7 @@ public final class FlightManager {
         }
 
         flyingMounts.remove(horse.getUUID());
+        pendingFlightJumps.remove(horse.getUUID());
         transitionMounts.add(horse.getUUID());
 
         Vec3 vel = horse.getDeltaMovement();
@@ -165,6 +174,7 @@ public final class FlightManager {
         if (horse == null) return;
         flyingMounts.remove(horse.getUUID());
         transitionMounts.remove(horse.getUUID());
+        pendingFlightJumps.remove(horse.getUUID());
         horse.fallDistance = 0.0f;
     }
 
@@ -193,6 +203,7 @@ public final class FlightManager {
             if (horse == null || !horse.isAlive()) {
                 flyingMounts.remove(horseId);
                 transitionMounts.remove(horseId);
+                pendingFlightJumps.remove(horseId);
                 continue;
             }
 
@@ -220,6 +231,7 @@ public final class FlightManager {
             // Prevent fall damage while flying.
             horse.fallDistance = 0.0f;
 
+            handleFlightJump(rider, horse);
             applyFlightMovement(rider, horse);
             playFlightParticles(horse, rider);
         }
@@ -228,7 +240,34 @@ public final class FlightManager {
     private void stopFlyingWithoutPlayer(Horse horse) {
         flyingMounts.remove(horse.getUUID());
         transitionMounts.remove(horse.getUUID());
+        pendingFlightJumps.remove(horse.getUUID());
         horse.fallDistance = 0.0f;
+    }
+
+    /**
+     * Mid-air jump: SPACE (the rider's vanilla jump key) boosts the mount
+     * upward with a rearing animation, so obstacles can be cleared without
+     * looking up. Debounced per horse.
+     */
+    private void handleFlightJump(ServerPlayer rider, Horse horse) {
+        var input = rider.getLastClientInput();
+        if (input == null || !input.jump()) {
+            return;
+        }
+
+        Long last = pendingFlightJumps.get(horse.getUUID());
+        if (last != null && tickCounter - last < FLIGHT_JUMP_COOLDOWN_TICKS) {
+            return;
+        }
+        pendingFlightJumps.put(horse.getUUID(), tickCounter);
+
+        // Rearing animation (vanilla stand flag - fully client-animated).
+        horse.setStanding(10);
+        horse.fallDistance = 0.0f;
+
+        playFlightJumpEffect((ServerLevel) horse.level(), horse.position());
+        horse.level().playSound(null, horse.blockPosition(), SoundEvents.HORSE_JUMP,
+                SoundSource.PLAYERS, 0.9f, 1.2f);
     }
 
     private void applyFlightMovement(ServerPlayer rider, Horse horse) {
@@ -252,6 +291,19 @@ public final class FlightManager {
             verticalVelocity = 0.0;
         }
 
+        // Active mid-air jump: superimpose a decaying boost arc. Never cancels
+        // a climb - it only ever lifts the mount higher.
+        Long jumpStart = pendingFlightJumps.get(horse.getUUID());
+        if (jumpStart != null) {
+            long t = tickCounter - jumpStart;
+            if (t > FLIGHT_JUMP_TICKS) {
+                pendingFlightJumps.remove(horse.getUUID());
+            } else {
+                double boost = FLIGHT_JUMP_STRENGTH * (1.0 - (double) t / (FLIGHT_JUMP_TICKS + 1));
+                verticalVelocity = Math.max(verticalVelocity, boost);
+            }
+        }
+
         horse.setDeltaMovement(horizontal.x, verticalVelocity, horizontal.z);
         // Sync to the client every tick, otherwise the client keeps
         // overwriting our velocity and the horse never moves.
@@ -262,6 +314,7 @@ public final class FlightManager {
     // EFFECTS
     // ======================================================================
 
+    /** Plugin parity: FlightManager.playTakeoffEffect. */
     private void playTakeoffEffect(ServerLevel level, Vec3 pos) {
         level.sendParticles(ParticleTypes.CLOUD, pos.x, pos.y + 0.3, pos.z,
                 35, 0.8, 0.2, 0.8, 0.08);
@@ -273,6 +326,7 @@ public final class FlightManager {
                 25, 0.9, 0.4, 0.9, 0.12);
     }
 
+    /** Plugin parity: FlightManager.playLandingEffect. */
     private void playLandingEffect(ServerLevel level, Vec3 pos) {
         level.sendParticles(ParticleTypes.CLOUD, pos.x, pos.y, pos.z,
                 25, 0.7, 0.3, 0.7, 0.05);
@@ -282,6 +336,21 @@ public final class FlightManager {
                 20, 0.8, 0.25, 0.8, 0.08);
     }
 
+    /** Mid-air jump burst: wing gust ring + rising sparks. */
+    private void playFlightJumpEffect(ServerLevel level, Vec3 pos) {
+        level.sendParticles(ParticleTypes.CLOUD, pos.x, pos.y + 0.4, pos.z,
+                40, 1.2, 0.15, 1.2, 0.02);
+        level.sendParticles(ParticleTypes.END_ROD, pos.x, pos.y + 0.8, pos.z,
+                35, 0.7, 0.9, 0.7, 0.03);
+        level.sendParticles(ParticleTypes.ELECTRIC_SPARK, pos.x, pos.y + 0.6, pos.z,
+                30, 1.0, 0.2, 1.0, 0.06);
+        level.sendParticles(ParticleTypes.ENCHANT, pos.x, pos.y + 1.2, pos.z,
+                25, 0.7, 0.6, 0.7, 0.2);
+    }
+
+
+
+    /** Plugin parity: FlightManager.playFlightParticles. */
     private void playFlightParticles(Horse horse, ServerPlayer rider) {
         playBifrostPathway(horse, rider);
 
@@ -292,7 +361,7 @@ public final class FlightManager {
         level.sendParticles(ParticleTypes.END_ROD, pos.x, pos.y + 1.0, pos.z,
                 2, 0.35, 0.25, 0.35, 0.01);
 
-        // Sparkle trail behind the mount.
+        // Small sparkle behind the mount.
         Vec3 backwards = horizontalDirection(rider).scale(-1.0);
         Vec3 trail = pos.add(backwards.x, 0.7, backwards.z);
         level.sendParticles(ParticleTypes.ELECTRIC_SPARK, trail.x, trail.y, trail.z,

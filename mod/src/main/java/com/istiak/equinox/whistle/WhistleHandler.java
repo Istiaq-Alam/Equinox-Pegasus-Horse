@@ -18,6 +18,7 @@ import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.Vec3;
@@ -479,39 +480,88 @@ public final class WhistleHandler {
     private SafeSpot findSafeNearPlayer(ServerPlayer player) {
         ServerLevel level = player.level();
 
-        for (int attempt = 0; attempt < 20; attempt++) {
+        // 1) Preferred: random ring points around the player.
+        for (int attempt = 0; attempt < 24; attempt++) {
             double angle = ThreadLocalRandom.current().nextDouble(Math.PI * 2.0);
             double radius = 3.0 + ThreadLocalRandom.current().nextDouble(4.0);
 
             int bx = player.getBlockX() + (int) Math.round(Math.cos(angle) * radius);
             int bz = player.getBlockZ() + (int) Math.round(Math.sin(angle) * radius);
 
-            int y = level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz);
-            Vec3 candidate = new Vec3(bx + 0.5, y + 1.0, bz + 0.5);
+            SafeSpot spot = findSafeSpot(level, bx, bz, player.getBlockY());
+            if (spot != null) return spot;
+        }
 
-            if (isSafeForHorse(level, candidate)) {
-                return new SafeSpot(level, candidate);
+        // 2) Deterministic fallback: 8 fixed directions at 3 and 6 blocks.
+        for (int ring = 3; ring <= 6; ring += 3) {
+            for (int step = 0; step < 8; step++) {
+                double angle = (Math.PI / 4.0) * step;
+                int bx = player.getBlockX() + (int) Math.round(Math.cos(angle) * ring);
+                int bz = player.getBlockZ() + (int) Math.round(Math.sin(angle) * ring);
+
+                SafeSpot spot = findSafeSpot(level, bx, bz, player.getBlockY());
+                if (spot != null) return spot;
             }
+        }
+
+        // 3) Last resort: the player's own column.
+        return findSafeSpot(level, player.getBlockX(), player.getBlockZ(), player.getBlockY());
+    }
+
+    /**
+     * Finds a standing position for a horse in the given column.
+     *
+     * Heightmap note: MOTION_BLOCKING height is the first air block above the
+     * topmost blocking block - exactly where feet belong. Scanning a few
+     * blocks below/above also handles overhangs, uneven terrain and any
+     * heightmap off-by-one, so a valid spot is found whenever one exists.
+     */
+    private SafeSpot findSafeSpot(ServerLevel level, int bx, int bz, double preferredY) {
+        int surface = level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz);
+
+        int start = (int) Math.round(preferredY);
+        if (start < level.getMinY() || start > level.getMaxY()) {
+            start = surface;
+        }
+
+        // Try the preferred Y first, then walk outward (down first, then up).
+        for (int offset = 0; offset <= 6; offset++) {
+            SafeSpot down = safeAt(level, bx, start - offset, bz);
+            if (down != null) return down;
+            if (offset == 0) continue;
+            SafeSpot up = safeAt(level, bx, start + offset, bz);
+            if (up != null) return up;
+        }
+
+        // Preferred Y was nowhere near usable - try the surface height itself.
+        for (int offset = 0; offset <= 3; offset++) {
+            SafeSpot down = safeAt(level, bx, surface - offset, bz);
+            if (down != null) return down;
+            if (offset == 0) continue;
+            SafeSpot up = safeAt(level, bx, surface + offset, bz);
+            if (up != null) return up;
         }
         return null;
     }
 
-    private SafeSpot findSafeHome(ServerLevel level, double x, double y, double z) {
-        Vec3 base = new Vec3(x, y, z);
-        if (isSafeForHorse(level, base)) {
-            return new SafeSpot(level, base);
-        }
+    private SafeSpot safeAt(ServerLevel level, int bx, int by, int bz) {
+        if (by < level.getMinY() || by > level.getMaxY()) return null;
+        Vec3 candidate = new Vec3(bx + 0.5, by, bz + 0.5);
+        return isSafeForHorse(level, candidate) ? new SafeSpot(level, candidate) : null;
+    }
 
+    private SafeSpot findSafeHome(ServerLevel level, double x, double y, double z) {
+        SafeSpot exact = findSafeSpot(level, (int) Math.floor(x), (int) Math.floor(z), y);
+        if (exact != null) return exact;
+
+        // Ring search outward from home.
         for (int radius = 1; radius <= 4; radius++) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    int bx = (int) Math.floor(x) + dx;
-                    int bz = (int) Math.floor(z) + dz;
-                    int by = level.getHeight(Heightmap.Types.MOTION_BLOCKING, bx, bz);
-                    Vec3 candidate = new Vec3(bx + 0.5, by + 1.0, bz + 0.5);
-                    if (isSafeForHorse(level, candidate)) {
-                        return new SafeSpot(level, candidate);
-                    }
+                    if (Math.abs(dx) != radius && Math.abs(dz) != radius) continue;
+                    SafeSpot spot = findSafeSpot(level,
+                            (int) Math.floor(x) + dx, (int) Math.floor(z) + dz, y);
+                    if (spot != null) return spot;
                 }
             }
         }
@@ -523,16 +573,33 @@ public final class WhistleHandler {
         BlockPos head = feet.above();
         BlockPos ground = feet.below();
 
-        // Plugin parity: ground.isSolid() + feet/head passable.
-        if (!level.getBlockState(ground).isSolid()) return false;
-        if (!level.getBlockState(feet).isPathfindable(PathComputationType.LAND)) return false;
-        if (!level.getBlockState(head).isPathfindable(PathComputationType.LAND)) return false;
+        // Vanilla collision checks: feet/head must be passable for a horse
+        // (wider than 1 block, so use the horse's bounding box), ground must
+        // have collision. This accepts glass, leaves, slabs, carpet, fences,
+        // etc. - anything isSolid() wrongly rejects.
+        AABB horseBox = new AABB(feet).inflate(-0.05, 0, -0.05)
+                .setMinY(pos.y).setMaxY(pos.y + 1.55);
+        if (!level.noCollision(horseBox)) return false;
+        if (level.getBlockState(ground).getCollisionShape(level, ground).isEmpty()) return false;
 
         var block = level.getBlockState(ground).getBlock();
-        return block != Blocks.LAVA
-                && block != Blocks.MAGMA_BLOCK
-                && block != Blocks.CAMPFIRE
-                && block != Blocks.SOUL_CAMPFIRE;
+        if (block == Blocks.LAVA
+                || block == Blocks.MAGMA_BLOCK
+                || block == Blocks.CAMPFIRE
+                || block == Blocks.SOUL_CAMPFIRE
+                || block == Blocks.POINTED_DRIPSTONE
+                || block == Blocks.SWEET_BERRY_BUSH
+                || block == Blocks.COBWEB
+                || block == Blocks.POWDER_SNOW) {
+            return false;
+        }
+
+        // Water surface is only acceptable if it is shallow enough to stand in.
+        if (level.getBlockState(feet).liquid()) {
+            return level.getBlockState(ground).liquid()
+                    && !level.getBlockState(ground.below()).liquid();
+        }
+        return true;
     }
 
     // ======================================================================

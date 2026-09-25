@@ -249,12 +249,29 @@ public final class EquinoxCommand {
             return 0;
         }
 
+        boolean gaveWhistle = giveWhistleIfMissing(player);
+
         EquinoxMod.sendPrefix(player, "<gold><bold>✦ EQUINOX MOUNT BOUND ✦</bold></gold>");
         EquinoxMod.sendPrefix(player, "<green>Your horse has been successfully bound!</green>");
         String name = horse.hasCustomName() ? horse.getCustomName().getString() : "Equinox Mount";
         EquinoxMod.sendPrefix(player, "<gray>Mount: <white>" + name + "</white></gray>");
+        if (gaveWhistle) {
+            EquinoxMod.sendPrefix(player, "<light_purple>✦ You received an Equinox Whistle!</light_purple>");
+        }
         EquinoxMod.sendPrefix(player, "<dark_gray>You can now use your Equinox Mount system.</dark_gray>");
         return 1;
+    }
+
+    /**
+     * Binding a mount automatically provides the whistle needed to call it.
+     * Players who already carry one are not given duplicates.
+     */
+    private static boolean giveWhistleIfMissing(ServerPlayer player) {
+        if (player.getInventory().contains(EquinoxItems::isWhistle)) {
+            return false;
+        }
+        player.getInventory().add(EquinoxItems.createWhistle());
+        return true;
     }
 
     private static int mountInfo(CommandSourceStack source) {

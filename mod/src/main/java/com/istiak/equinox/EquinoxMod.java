@@ -1,5 +1,6 @@
 package com.istiak.equinox;
 
+import com.istiak.equinox.animations.HorseMovementParticles;
 import com.istiak.equinox.command.EquinoxCommand;
 import com.istiak.equinox.enchant.EnchantmentType;
 import com.istiak.equinox.flight.FlightManager;
@@ -38,6 +39,7 @@ public final class EquinoxMod implements ModInitializer {
     private static FlightManager flightManager;
     private static WhistleHandler whistleHandler;
     private static EnchantScanner enchantScanner;
+    private static HorseMovementParticles movementParticles;
     private static long tickCounter = 0;
 
     /** Global server tick counter, read by the enchant scanner. */
@@ -50,6 +52,7 @@ public final class EquinoxMod implements ModInitializer {
         flightManager = new FlightManager();
         whistleHandler = new WhistleHandler();
         enchantScanner = new EnchantScanner();
+        movementParticles = new HorseMovementParticles(flightManager);
 
         // ------------------------------------------------------------------
         // /equinox command tree (port of EquinoxCommand).
@@ -87,6 +90,7 @@ public final class EquinoxMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             MountSavedData.get(server).saveAll();
             whistleHandler.shutdown();
+            movementParticles.shutdown();
             log("Equinox has been disabled.");
         });
 
@@ -104,6 +108,7 @@ public final class EquinoxMod implements ModInitializer {
         whistleHandler.tick(server);
         flightManager.tick(server);
         enchantScanner.tick(server);
+        movementParticles.tick(server);
 
         // Port of FlightListener.onToggleSneak (SHIFT = takeoff / land).
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -137,6 +142,10 @@ public final class EquinoxMod implements ModInitializer {
 
     public static EnchantScanner getEnchantScanner() {
         return enchantScanner;
+    }
+
+    public static HorseMovementParticles getMovementParticles() {
+        return movementParticles;
     }
 
     public static Identifier id(String path) {
