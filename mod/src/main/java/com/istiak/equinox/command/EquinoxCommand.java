@@ -108,11 +108,11 @@ public final class EquinoxCommand {
         String type = StringArgumentType.getString(ctx, "type").toLowerCase();
 
         ItemStack base = switch (type) {
-            case "leather" -> new ItemStack(Items.LEATHER_HORSE_ARMOR);
-            case "iron" -> new ItemStack(Items.IRON_HORSE_ARMOR);
-            case "gold", "golden" -> new ItemStack(Items.GOLDEN_HORSE_ARMOR);
-            case "diamond" -> new ItemStack(Items.DIAMOND_HORSE_ARMOR);
-            case "netherite" -> new ItemStack(Items.NETHERITE_HORSE_ARMOR);
+            case "leather" -> EquinoxItems.createArmor(EquinoxItems.LEATHER_EQUINOX_ARMOR);
+            case "iron" -> EquinoxItems.createArmor(EquinoxItems.IRON_EQUINOX_ARMOR);
+            case "gold", "golden" -> EquinoxItems.createArmor(EquinoxItems.GOLDEN_EQUINOX_ARMOR);
+            case "diamond" -> EquinoxItems.createArmor(EquinoxItems.DIAMOND_EQUINOX_ARMOR);
+            case "netherite" -> EquinoxItems.createArmor(EquinoxItems.NETHERITE_EQUINOX_ARMOR);
             default -> null;
         };
 
@@ -121,7 +121,7 @@ public final class EquinoxCommand {
             return 0;
         }
 
-        target.getInventory().add(EquinoxItems.createArmor(base));
+        target.getInventory().add(base);
         send(source, "<green>Equinox Horse Armor given to " + target.getName().getString() + "!</green>");
         EquinoxMod.sendPrefix(target, "<gold>You received Equinox Horse Armor!</gold>");
         return 1;

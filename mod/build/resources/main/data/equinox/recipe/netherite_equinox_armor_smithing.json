@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:smithing_transform",
+  "template": "minecraft:netherite_upgrade_smithing_template",
+  "base": "equinox:diamond_equinox_armor",
+  "addition": "#minecraft:netherite_tool_materials",
+  "result": {
+    "id": "equinox:netherite_equinox_armor"
+  }
+}

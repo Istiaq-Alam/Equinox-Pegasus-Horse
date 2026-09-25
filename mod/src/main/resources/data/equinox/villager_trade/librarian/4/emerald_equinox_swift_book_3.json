@@ -1,0 +1,12 @@
+{
+  "gives": {
+    "id": "equinox:equinox_swift_book_3"
+  },
+  "max_uses": 4.0,
+  "reputation_discount": 0.2,
+  "wants": {
+    "count": 12.0,
+    "id": "minecraft:emerald"
+  },
+  "xp": 5.0
+}

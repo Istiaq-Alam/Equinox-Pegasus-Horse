@@ -5,6 +5,7 @@ import com.istiak.equinox.command.EquinoxCommand;
 import com.istiak.equinox.enchant.EnchantmentType;
 import com.istiak.equinox.flight.FlightManager;
 import com.istiak.equinox.items.EquinoxItems;
+import com.istiak.equinox.items.EquinoxLoot;
 import com.istiak.equinox.mount.MountSavedData;
 import com.istiak.equinox.whistle.WhistleHandler;
 import net.fabricmc.api.ModInitializer;
@@ -12,6 +13,10 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -49,6 +54,9 @@ public final class EquinoxMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        EquinoxItems.register();
+        EquinoxLoot.register();
+
         flightManager = new FlightManager();
         whistleHandler = new WhistleHandler();
         enchantScanner = new EnchantScanner();
@@ -83,6 +91,25 @@ public final class EquinoxMod implements ModInitializer {
         // toggles, enchant attribute scan and last-known location sync.
         // ------------------------------------------------------------------
         ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+
+        // ------------------------------------------------------------------
+        // Creative inventory: all Equinox items on the Combat tab.
+        // ------------------------------------------------------------------
+        CreativeModeTabEvents.MODIFY_OUTPUT_ALL.register((tab, output) -> {
+            if (BuiltInRegistries.CREATIVE_MODE_TAB.getKey(tab)
+                    .equals(net.minecraft.resources.Identifier.withDefaultNamespace("combat"))) {
+                output.accept(EquinoxItems.createArmor(EquinoxItems.LEATHER_EQUINOX_ARMOR), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                output.accept(EquinoxItems.createArmor(EquinoxItems.IRON_EQUINOX_ARMOR), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                output.accept(EquinoxItems.createArmor(EquinoxItems.GOLDEN_EQUINOX_ARMOR), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                output.accept(EquinoxItems.createArmor(EquinoxItems.DIAMOND_EQUINOX_ARMOR), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                output.accept(EquinoxItems.createArmor(EquinoxItems.NETHERITE_EQUINOX_ARMOR), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                for (int level = 1; level <= 5; level++) {
+                    for (EnchantmentType type : EnchantmentType.values()) {
+                        output.accept(EquinoxItems.createBook(type, level), CreativeModeTab.TabVisibility.PARENT_TAB_ONLY);
+                    }
+                }
+            }
+        });
 
         // ------------------------------------------------------------------
         // Persist the mount registry on shutdown (port of MountManager.shutdown).
