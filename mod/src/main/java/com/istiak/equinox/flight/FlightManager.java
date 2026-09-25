@@ -44,10 +44,10 @@ public final class FlightManager {
     private static final double PATH_HALF_WIDTH = 1.25;
     private static final double PATH_BELOW_HORSE = 1.15;
 
-    // Dust colors (26.x DustParticleOptions takes an ARGB int).
-    private static final int CENTER_COLOR = 0x50DCFF;
-    private static final int LEFT_COLOR = 0xB95AFF;
-    private static final int RIGHT_COLOR = 0xFF5AD2;
+    // Dust colors - fully opaque ARGB (alpha 0 would be invisible).
+    private static final int CENTER_COLOR = 0xFF50DCFF;
+    private static final int LEFT_COLOR = 0xFFB95AFF;
+    private static final int RIGHT_COLOR = 0xFFFF5AD2;
 
     /** Horse UUIDs currently flying. */
     private final Set<UUID> flyingMounts = new HashSet<>();
@@ -124,9 +124,12 @@ public final class FlightManager {
         horse.level().playSound(null, horse.blockPosition(), SoundEvents.ALLAY_AMBIENT_WITH_ITEM,
                 SoundSource.PLAYERS, 0.8f, 1.5f);
 
-        // Initial upward boost.
+        // Initial upward boost. hurtMarked = true forces the server to send
+        // the velocity to the client - required because the client controls
+        // a ridden vehicle and silently ignores unsynced server motion.
         Vec3 vel = horse.getDeltaMovement();
         horse.setDeltaMovement(vel.x, 0.55, vel.z);
+        horse.hurtMarked = true;
 
         // Clear the transition flag after 12 ticks.
         pendingTransitions.put(horse.getUUID(), tickCounter + TRANSITION_TICKS);
@@ -145,6 +148,7 @@ public final class FlightManager {
 
         Vec3 vel = horse.getDeltaMovement();
         horse.setDeltaMovement(vel.x, Math.min(vel.y, -0.15), vel.z);
+        horse.hurtMarked = true;
 
         playLandingEffect((ServerLevel) horse.level(), horse.position());
 
@@ -249,6 +253,9 @@ public final class FlightManager {
         }
 
         horse.setDeltaMovement(horizontal.x, verticalVelocity, horizontal.z);
+        // Sync to the client every tick, otherwise the client keeps
+        // overwriting our velocity and the horse never moves.
+        horse.hurtMarked = true;
     }
 
     // ======================================================================

@@ -1,0 +1,88 @@
+name: Equinox
+version: ${version}
+main: com.istiak.equinox.EquinoxPlugin
+
+description: Legendary enchanted horse armor and magical mounts.
+author: Istiak Alam
+
+api-version: '26.1.2'
+
+commands:
+
+  equinox:
+    description: Main Equinox command.
+    usage: /equinox <help|armor|enchant|disenchant|mount>
+    aliases:
+      - eq
+
+
+permissions:
+
+  # ============================================================
+  # ADMIN
+  # ============================================================
+
+  equinox.admin:
+    description: Full Equinox administration access.
+    default: op
+    children:
+      equinox.use: true
+      equinox.mount: true
+      equinox.bind: true
+      equinox.unbind: true
+      equinox.whistle: true
+      equinox.enchant: true
+
+
+  # ============================================================
+  # GENERAL EQUINOX USE
+  # ============================================================
+
+  equinox.use:
+    description: Allows players to use Equinox features.
+    default: true
+
+
+  # ============================================================
+  # MOUNTING
+  # ============================================================
+
+  equinox.mount:
+    description: Allows players to mount and ride their own Equinox horse.
+    default: true
+
+
+  # ============================================================
+  # BIND MOUNT
+  # ============================================================
+
+  equinox.bind:
+    description: Allows players to bind their horse as an Equinox mount.
+    default: true
+
+
+  # ============================================================
+  # UNBIND MOUNT
+  # ============================================================
+
+  equinox.unbind:
+    description: Allows players to unbind their Equinox mount.
+    default: true
+
+
+  # ============================================================
+  # EQUINOX WHISTLE
+  # ============================================================
+
+  equinox.whistle:
+    description: Allows players to use the Equinox Whistle.
+    default: true
+
+
+  # ============================================================
+  # HORSE ARMOR
+  # ============================================================
+
+  equinox.enchant:
+    description: Allows players to enchant Equinox horse armor.
+    default: op

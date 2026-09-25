@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.world.entity.animal.equine.Horse;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.entity.EntityTypeTest;
@@ -216,6 +217,10 @@ public final class WhistleHandler {
      * horses whose chunk position matches.
      */
     private Horse searchChunk(ServerLevel level, int cx, int cz, UUID horseId) {
+        // Hold the chunk (and neighbors) loaded with a ticket while recovery
+        // runs - without this it can unload again before the teleport fires.
+        ChunkPos pos = new ChunkPos(cx, cz);
+        level.getChunkSource().addTicketWithRadius(TicketType.FORCED, pos, 1);
         level.getChunk(cx, cz); // force load - loads its entities
         ChunkPos target = new ChunkPos(cx, cz);
         List<? extends Horse> horses =
@@ -290,17 +295,20 @@ public final class WhistleHandler {
                 Vec3 vel = horse.getDeltaMovement();
                 if (vel.y < jumpVelocity) {
                     horse.setDeltaMovement(vel.x, jumpVelocity, vel.z);
+                    horse.hurtMarked = true;
                 }
             } else if (horse.onGround()) {
                 horse.setJumping(false);
             }
 
             // Horizontal movement toward the player, preserve vertical velocity.
+            // hurtMarked syncs the motion to clients ( Bukkit setVelocity parity).
             horse.setDeltaMovement(new Vec3(
                     direction.x * RUN_SPEED,
                     horse.getDeltaMovement().y,
                     direction.z * RUN_SPEED
             ));
+            horse.hurtMarked = true;
             horse.getNavigation().moveTo(player.getX(), player.getY(), player.getZ(), 1.0);
 
             ticks++;
@@ -345,7 +353,7 @@ public final class WhistleHandler {
         BlockPos landingHead = landingFeet.above();
         BlockPos landingGround = landingFeet.below();
 
-        return level.getBlockState(landingGround).isSolidRender()
+        return level.getBlockState(landingGround).isSolid()
                 && level.getBlockState(landingFeet).isPathfindable(PathComputationType.LAND)
                 && level.getBlockState(landingHead).isPathfindable(PathComputationType.LAND);
     }
@@ -438,12 +446,24 @@ public final class WhistleHandler {
     }
 
     private void doTeleport(ServerPlayer player, Horse horse, SafeSpot spot) {
-        horse.teleportTo(spot.level(), spot.pos().x, spot.pos().y, spot.pos().z,
+        // Ensure the destination chunk is ticket-loaded BEFORE teleporting,
+        // otherwise the teleport lands in an unloaded chunk.
+        ServerLevel dest = spot.level();
+        BlockPos destBlock = BlockPos.containing(spot.pos());
+        ChunkPos destChunk = new ChunkPos(destBlock.getX() >> 4, destBlock.getZ() >> 4);
+        dest.getChunkSource().addTicketWithRadius(TicketType.FORCED, destChunk, 1);
+
+        boolean ok = horse.teleportTo(dest, spot.pos().x, spot.pos().y, spot.pos().z,
                 java.util.Set.of(), horse.getYRot(), horse.getXRot(), false);
+        if (!ok) {
+            actionbar(player, "Could not summon your mount.", ChatFormatting.RED);
+            return;
+        }
+
         MountSavedData.get(player.level().getServer()).updateLastKnown(horse);
 
-        spawnTeleportEffect(spot.level(), spot.pos());
-        spot.level().playSound(null, BlockPos.containing(spot.pos()),
+        spawnTeleportEffect(dest, spot.pos());
+        dest.playSound(null, BlockPos.containing(spot.pos()),
                 SoundEvents.ENDERMAN_TELEPORT, SoundSource.PLAYERS, 1.0f, 1.1f);
 
         actionbar(player, "✦ Your Equinox mount has arrived.", ChatFormatting.GREEN);
@@ -503,7 +523,8 @@ public final class WhistleHandler {
         BlockPos head = feet.above();
         BlockPos ground = feet.below();
 
-        if (!level.getBlockState(ground).isSolidRender()) return false;
+        // Plugin parity: ground.isSolid() + feet/head passable.
+        if (!level.getBlockState(ground).isSolid()) return false;
         if (!level.getBlockState(feet).isPathfindable(PathComputationType.LAND)) return false;
         if (!level.getBlockState(head).isPathfindable(PathComputationType.LAND)) return false;
 
